@@ -108,32 +108,46 @@ do_build() {
 		fi
 	fi
 
-	# wasi-sdk's compiler-rt archive layout differs from Clang's target-specific
-	# resource layout. Discover the installed archive instead of hard-coding either.
-	# The Preview 1 and Preview 1 threads targets share the WASI builtins archive.
+	# Void's current wasi-compiler-rt package installs into
+	# /usr/lib/clang/<major>/lib. Older packaging used /usr/lib/llvm/<major>/...
+	# Reuse matching target archives when present; otherwise bridge the SDK archive.
+	# Preview 1 and Preview 1 threads may share one builtins archive.
 	prepare_wasi_builtins() {
 		[ -n "$build_option_wasi" ] || return 0
-		local wasi_runtime_root="/usr/lib/llvm/${_wasi_llvmver}/lib/clang/${_wasi_llvmver}/lib"
 		local clang_resource_root="/usr/lib/clang/${_llvmver}/lib"
-		local target_triple archive target_dir
+		local runtime_root target_triple archive target_dir target_archive
+		local -a wasi_runtime_roots=(
+			"/usr/lib/clang/${_wasi_llvmver}/lib"
+			"/usr/lib/llvm/${_wasi_llvmver}/lib/clang/${_wasi_llvmver}/lib"
+		)
 		local -a wasi_targets=(
 			"wasm32-unknown-wasip1"
 			"wasm32-unknown-wasip1-threads"
 		)
 
-		archive="$(find "$wasi_runtime_root" -type f \( -name 'libclang_rt.builtins.a' -o -name 'libclang_rt.builtins-wasm32.a' \) -print -quit)"
-		if [ -z "$archive" ] || [ ! -s "$archive" ]; then
-			echo "Required WASI compiler-rt archive not found under $wasi_runtime_root." >&2
-			find "$wasi_runtime_root" -type f -name 'libclang_rt*' -print >&2 || true
-			return 1
-		fi
-
 		for target_triple in "${wasi_targets[@]}"; do
 			target_dir="${clang_resource_root}/${target_triple}"
+			target_archive="${target_dir}/libclang_rt.builtins.a"
+			[ -s "$target_archive" ] && continue
+
+			archive=""
+			for runtime_root in "${wasi_runtime_roots[@]}"; do
+				[ -d "$runtime_root" ] || continue
+				archive="$(find "$runtime_root" -type f \( -name 'libclang_rt.builtins.a' -o -name 'libclang_rt.builtins-wasm32.a' \) -size +0c -print -quit)"
+				[ -n "$archive" ] && break
+			done
+			if [ -z "$archive" ] || [ ! -s "$archive" ]; then
+				echo "Required WASI compiler-rt archive not found; searched: ${wasi_runtime_roots[*]}" >&2
+				for runtime_root in "${wasi_runtime_roots[@]}"; do
+					[ -d "$runtime_root" ] && find "$runtime_root" -type f -name 'libclang_rt*' -print >&2
+				 done
+				return 1
+			fi
+
 			mkdir -p "$target_dir"
-			ln -sfn "$archive" "${target_dir}/libclang_rt.builtins.a"
+			ln -sfn "$archive" "$target_archive"
 		done
-		echo "WASI compiler-rt archive prepared for Clang ${_llvmver}: $archive"
+		echo "WASI compiler-rt archives verified/prepared for Clang ${_llvmver}."
 	}
 
 	prepare_wasi_builtins || exit 1
