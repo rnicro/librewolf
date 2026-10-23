@@ -30,12 +30,13 @@ jobs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
       version: ${{ steps.meta.outputs.version }}
       rev: ${{ steps.meta.outputs.rev }}
+      package_revision: ${{ steps.meta.outputs.package_revision }}
     runs-on: ${{ vars.LIBREWOLF_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 360
     env:
       XBPS_TARGET_ARCH: x86_64-musl
       SCCACHE_GHA_ENABLED: "on"
-      SCCACHE_GHA_VERSION: "librewolf-x86_64-musl-skylake-llvm23-v2"
+      SCCACHE_GHA_VERSION: "librewolf-x86_64-musl-skylake-llvm23-v3"
       LIBREWOLF_PGO_CACHE_VERSION: "v12"
     steps:
       - name: free space
@@ -66,7 +67,21 @@ jobs:
       - name: checkout librewolf-void
         uses: actions/checkout@v7
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: derive reproducible build epoch
+        id: build-epoch
+        run: |
+          set -euo pipefail
+          epoch="$(git log -1 --format=%ct -- srcpkgs/librewolf)"
+          [[ "$epoch" =~ ^[0-9]+$ ]] || {
+            echo "could not derive a stable build epoch from package inputs" >&2
+            exit 1
+          }
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_DATE_EPOCH=$epoch" >> "$GITHUB_ENV"
+          echo "Firefox build date epoch: $epoch"
 
       - name: checkout void-packages
         uses: actions/checkout@v7
@@ -170,6 +185,9 @@ jobs:
                 `export ACTIONS_RUNTIME_TOKEN=${quote(runtimeToken)}`,
                 "export SCCACHE_MULTILEVEL_CHAIN=disk,gha",
                 "export SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=ignore",
+                "export SCCACHE_GHA_RW_MODE=READ_WRITE",
+                "export SCCACHE_ERROR_LOG=/host/sccache-error.log",
+                "export SCCACHE_LOG=warn",
               ].join("\n") + "\n",
               { mode: 0o600 },
             );
@@ -181,7 +199,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: void-packages/hostdir/sources/librewolf-${{ steps.meta.outputs.version }}/${{ steps.meta.outputs.distfile }}
-          key: librewolf-source-v5-${{ steps.meta.outputs.sha256 }}
+          key: librewolf-source-v6-${{ steps.meta.outputs.sha256 }}
 
       - name: fetch and verify LibreWolf source
         timeout-minutes: 20
@@ -222,7 +240,7 @@ jobs:
         continue-on-error: true
         with:
           path: void-packages/hostdir/sources/librewolf-${{ steps.meta.outputs.version }}/${{ steps.meta.outputs.distfile }}
-          key: librewolf-source-v5-${{ steps.meta.outputs.sha256 }}
+          key: librewolf-source-v6-${{ steps.meta.outputs.sha256 }}
 
       - name: build package
         timeout-minutes: 350
@@ -232,6 +250,9 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="/opt/xbps/usr/bin/:$PATH"
+          printf '%s\n' "${SOURCE_DATE_EPOCH:?missing reproducible build epoch}" > hostdir/source-date-epoch
+          chmod 644 hostdir/source-date-epoch
+          rm -f hostdir/sccache-error.log
 
           # Reserve 2 GiB for the OS/linker overhead and budget about 3 GiB per worker.
           cpu_jobs="$(nproc)"
@@ -256,6 +277,18 @@ jobs:
             echo "Using the reliable LTO-only default; PGO is opt-in."
           fi
           ./xbps-src -A "$XBPS_TARGET_ARCH" "${pgo_options[@]}" pkg -j"$build_jobs" librewolf
+
+      - name: report compiler cache diagnostics
+        if: ${{ always() }}
+        working-directory: void-packages
+        run: |
+          set -euo pipefail
+          if [ -s hostdir/sccache-error.log ]; then
+            echo "sccache backend diagnostics:"
+            tail -n 100 hostdir/sccache-error.log
+          else
+            echo "No sccache backend errors were logged."
+          fi
 
       - name: save LibreWolf PGO profile
         if: ${{ always() && steps.pgo-cache.outputs.cache-hit != 'true' && hashFiles('void-packages/hostdir/pgo-cache/merged.profdata') != '' && hashFiles('void-packages/hostdir/pgo-cache/jarlog') != '' }}
@@ -325,13 +358,16 @@ jobs:
           set -euo pipefail
           gh auth setup-git
 
-          # Published version tags are immutable; do not retarget existing releases.
+          # Tags remain immutable. Reuse an existing tag only when all package inputs match;
+          # changes to the recipe, patches or preferences require a package revision bump.
           if existing_tag_sha="$(git ls-remote --exit-code origin "refs/tags/$TAG" | awk 'NR == 1 {print $1}')"; then
-            if [ "$existing_tag_sha" != "$EXPECTED_SHA" ]; then
-              echo "Refusing to overwrite tag $TAG: it points to $existing_tag_sha, expected $EXPECTED_SHA." >&2
+            git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+            if git diff --quiet "$TAG" "$EXPECTED_SHA" -- srcpkgs/librewolf; then
+              echo "Reusing immutable tag $TAG; package inputs are unchanged."
+            else
+              echo "Refusing to reuse $TAG because srcpkgs/librewolf changed; increment the package revision." >&2
               exit 1
             fi
-            echo "Tag $TAG already points to this commit."
           else
             git push origin "$EXPECTED_SHA:refs/tags/$TAG"
           fi
@@ -342,11 +378,12 @@ jobs:
           TAG: ${{ needs.build.outputs.release_tag }}
           VERSION: ${{ needs.build.outputs.version }}
           REV: ${{ needs.build.outputs.rev }}
+          PKG_REV: ${{ needs.build.outputs.package_revision }}
         run: |
           set -euo pipefail
           gh release view "$TAG" >/dev/null 2>&1 && exit 0
           gh release create "$TAG" \
-            --title "$VERSION" \
+            --title "$VERSION (package revision $PKG_REV)" \
             --notes "https://librewolf.dev/librewolf/source/releases/tag/${VERSION}-${REV}" \
             --latest=false
 

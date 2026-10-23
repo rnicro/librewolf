@@ -189,7 +189,7 @@ case "$expected_distfile" in
 esac
 
 distfile="$expected_distfile"
-release_tag="$version"
+release_tag="${version}-r${revision}"
 
 if [ -n "$GITHUB_OUTPUT" ]; then
   {
@@ -197,8 +197,9 @@ if [ -n "$GITHUB_OUTPUT" ]; then
     echo "distfile=$distfile"
     echo "version=$version"
     echo "rev=$_rev"
+    echo "package_revision=$revision"
     echo "release_tag=$release_tag"
   } >> "$GITHUB_OUTPUT"
 fi
 
-printf 'validated: %s %s (source %s)\n' "$pkgname" "$release_tag" "$distfile"
+printf 'validated: %s (package revision %s; tag %s; source %s)\n' "$pkgname" "$revision" "$release_tag" "$distfile"

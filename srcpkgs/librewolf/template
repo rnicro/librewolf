@@ -1,7 +1,7 @@
 # Template file for 'librewolf'
 pkgname=librewolf
 version=158.0.1
-revision=1
+revision=2
 _rev=2
 wrksrc=${pkgname}-${version}-${_rev}
 build_helper="rust"
@@ -233,8 +233,12 @@ do_build() {
 		echo "ac_add_options --disable-debug" >>mozconfig
 	fi
 
-	if [ "$SOURCE_DATE_EPOCH" ]; then
-		export MOZ_BUILD_DATE=$(date --date "@$SOURCE_DATE_EPOCH" "+%Y%m%d%H%M%S")
+	if [ -z "${SOURCE_DATE_EPOCH:-}" ] && [ -r /host/source-date-epoch ]; then
+		SOURCE_DATE_EPOCH="$(cat /host/source-date-epoch)"
+		export SOURCE_DATE_EPOCH
+	fi
+	if [[ "${SOURCE_DATE_EPOCH:-}" =~ ^[0-9]+$ ]]; then
+		export MOZ_BUILD_DATE="$(date --date "@${SOURCE_DATE_EPOCH}" "+%Y%m%d%H%M%S")"
 	fi
 
 	export MOZ_MAKE_FLAGS="${makejobs}"
@@ -339,6 +343,10 @@ do_build() {
 
 post_build() {
 	/usr/bin/sccache --show-stats || true
+	if [ -s /host/sccache-error.log ]; then
+		echo "sccache backend diagnostics (last 100 lines):" >&2
+		tail -n 100 /host/sccache-error.log >&2 || true
+	fi
 }
 
 do_install() {

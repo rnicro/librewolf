@@ -15,7 +15,7 @@ Verify `about:support` → **Window Protocol** reports `wayland`, not `xwayland`
 
 ## Download and install
 
-Open [GitHub Releases](https://github.com/Azuuuuure222/librewolf/releases) and download the `.xbps` package for your target. Releases intentionally contain package archives only—no repository metadata or checksum manifests.
+Open [GitHub Releases](https://github.com/rnicro/librewolf/releases) and download the `.xbps` package for your target. Releases intentionally contain package archives only—no repository metadata or checksum manifests.
 
 For a local install, keep the official Void repositories enabled for dependencies, install `xbps` tools, and create local repository metadata from the downloaded package:
 
@@ -39,9 +39,9 @@ These settings prioritize resource stability on the target; process limits trade
 
 ## Build and release
 
-- Source revision: LibreWolf 158.0.1-2; package revision: 1.
+- Source revision: LibreWolf 158.0.1-2; package revision: 2.
 - CI builds on a hosted runner. Build parallelism follows runner CPU and RAM capacity.
-- CI validates the source checksum, caches source/compiler/Void dependencies, and publishes only `.xbps` package files. Release tags and release titles use the LibreWolf version alone. PGO profiles are cached when available and regenerated when the cache key changes.
+- CI validates source checksums, uses versioned content-addressed source/compiler caches, and publishes only `.xbps` package files. Release tags include the upstream version and XBPS package revision (for example, `158.0.1-r2`); a tag can be reused only when package inputs are unchanged. The browser build date is derived from the last commit touching `srcpkgs/librewolf`. PGO remains opt-in because the last profiling attempt failed and fell back to LTO.
 - Build permissions are read-only; publishing runs separately and only for `master`.
 
 ## Key paths
@@ -68,7 +68,7 @@ The sections above are the quick-start summary. This reference records the full 
 | CPU | Intel Core i3-6100U, Skylake, 2 cores / 4 threads |
 | RAM/storage | 4 GB DDR3 / HDD |
 | Display/audio | Native Wayland / ALSA and PulseAudio protocol |
-| Source/package revision | LibreWolf 158.0.1, source revision 2, Void package revision 1 |
+| Source/package revision | LibreWolf 158.0.1, source revision 2, Void package revision 2 |
 
 Priorities are runtime responsiveness on the actual Skylake machine, memory stability, reduced unnecessary HDD writes, useful CI throughput, reuse of expensive build outputs, and a small maintainable patch set. The **build host and runtime target are different machines**: compile and link concurrency should follow the actual GitHub runner's CPU/RAM, not the laptop's four hardware threads.
 
@@ -147,10 +147,10 @@ The validator checks shell syntax, package name, version, positive package revis
 
 | Cache | Current key/namespace | Validation and purpose |
 |---|---|---|
-| Source archive | `librewolf-source-v5-<SHA256>` | Re-hash cached file against template checksum; refetch on mismatch |
+| Source archive | `librewolf-source-v6-<SHA256>` | Re-hash cached file against template checksum; v6 isolates a previously invalid v5 cache entry |
 | Experimental PGO | `LIBREWOLF_PGO_CACHE_VERSION=v12` | Manual opt-in only; source digest, recipe, patches, `stab.h`, LLVM 23/Rust/Cargo/WASI/sccache/base-chroot inputs |
 | Void binary dependencies | `void-repocache-v3` | Weekly immutable snapshot; restores the previous v2 cache or the latest matching v3 week, then saves a refreshed snapshot. This updates package downloads without creating a cache for every commit. |
-| Compiler cache | `librewolf-x86_64-musl-skylake-llvm23-v2` | Packaged `rust-sccache` with local disk + GitHub Actions cache |
+| Compiler cache | `librewolf-x86_64-musl-skylake-llvm23-v3` | Packaged `rust-sccache`, explicit GHA read/write mode and backend error diagnostics |
 
 Important compiler-cache settings are `RUSTC_WRAPPER=/usr/bin/sccache`, `SCCACHE_CLIENT_SIDE=false`, `SCCACHE_DIR=/host/sccache`, `SCCACHE_CACHE_SIZE=16G`, `SCCACHE_CACHE_ZSTD_LEVEL=1` and `SCCACHE_IDLE_TIMEOUT=0`. The multi-level chain is `disk,gha` and remote write failures are ignored so a transient cache outage does not fail the package build. The build uses a packaged cache executable because `xbps-src` can clean/reconstruct its chroot, and it explicitly points Firefox configure at `/usr/bin/sccache` because a bare executable name proved unreliable.
 
@@ -185,7 +185,7 @@ The current recipe also removes `sys/single_threaded.h` from Firefox's generated
 | Oct 15 | Tuned Fission reuse, corrected LLD worker parsing, improved PGO helpers/cache handling, documented direct-to-master workflow and shortened the 1,078-line README. |
 | Oct 16 | Tried headless and native-Wayland PGO, then switched to optional Xvfb PGO after profile startup failures; added an LTO-only fallback, validation guards and packaging/CI cleanup. |
 | Oct 17 | Pinned Clang/LLVM/LLD to LLVM 23 to match Void Rust, removed forced LTO partitioning, corrected bindgen's versioned `libclang.so` path, and bridged Void's WASI runtime layout to Clang 23. |
-| Oct 23 | Bumped LibreWolf to 158.0.1-2, pinned the supplied source digest, made PGO opt-in, and aligned the WASI runtime pin with current Void packages. |
+| Oct 23 | Bumped LibreWolf to 158.0.1-2, pinned the source digest, made PGO opt-in, aligned WASI discovery with Void LLVM 23, repaired source-cache invalidation, stabilized build dates, and versioned releases by XBPS revision. |
 
 Key lessons from failures: don't copy unmanaged tools into an XBPS chroot; use explicit compiler-cache paths; validate package/source metadata before costly builds; re-hash source-cache entries; validate LLVM profiles instead of trusting file existence; make cache keys specific to profile-affecting inputs; don't base CI worker counts on the laptop; don't force LTO partitions that can break sandbox linkage; and remove stale patches when upstream fixes or source layout make them obsolete.
 
