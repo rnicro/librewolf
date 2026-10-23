@@ -1,8 +1,8 @@
 # Template file for 'librewolf'
 pkgname=librewolf
-version=158.0
-revision=4
-_rev=1
+version=158.0.1
+revision=1
+_rev=2
 wrksrc=${pkgname}-${version}-${_rev}
 build_helper="rust"
 short_desc="LibreWolf web browser"
@@ -10,7 +10,7 @@ maintainer="index <index@mailbox.org>"
 license="GPL-3.0-only AND LGPL-2.1-only AND LGPL-3.0-only AND MPL-2.0"
 homepage="https://librewolf.dev"
 distfiles="https://librewolf.dev/api/packages/librewolf/generic/librewolf-source/${version}-${_rev}/${pkgname}-${version}-${_rev}.source.tar.gz"
-checksum=ea2424fb4c02916c0c531210f1dd8b460e85074f2d8ca0529d49553d36dd13c0
+checksum=dd1e782faf8e8da53267997c79f6b5c330ca0ca1cf1818c6d6faaeb08642f7db
 
 lib32disabled=yes
 
@@ -35,7 +35,7 @@ makedepends="nss-devel libjpeg-turbo-devel gtk+3-devel
 depends="nss>=3.129 nspr>=4.39 desktop-file-utils hicolor-icon-theme pciutils libavcodec6"
 
 build_options="alsa dbus pulseaudio lto pgo clang wasi debug"
-build_options_default="alsa dbus pulseaudio lto pgo clang wasi"
+build_options_default="alsa dbus pulseaudio lto clang wasi"
 
 desc_option_lto="Enable Link Time Optimization"
 desc_option_pgo="Enable experimental Profile-guided Optimization"

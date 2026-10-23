@@ -152,7 +152,10 @@ grep -Fq 'MOZ_ENABLE_WAYLAND=0' "$template" || {
 }
 default_options=$(sed -n 's/^build_options_default="\([^"]*\)"/\1/p' "$template")
 case " $default_options " in
-  *" pgo "*) ;;
+  *" pgo "*)
+    echo "PGO must remain opt-in and must not appear in build_options_default" >&2
+    exit 1
+    ;;
 esac
 grep -Fq 'falling back to a non-PGO LTO build' "$template" || {
   echo "PGO failures must fall back to the standard LTO build" >&2

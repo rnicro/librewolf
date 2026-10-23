@@ -9,6 +9,12 @@ on:
       - .github/workflows/main.yml
       - .github/scripts/**
   workflow_dispatch:
+    inputs:
+      pgo:
+        description: "Enable experimental PGO (slower; LTO-only is the default)"
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: librewolf-${{ github.ref }}
@@ -222,7 +228,7 @@ jobs:
         timeout-minutes: 350
         working-directory: void-packages
         env:
-          PGO_BUILD: true
+          PGO_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.pgo }}
         run: |
           set -euo pipefail
           export PATH="/opt/xbps/usr/bin/:$PATH"

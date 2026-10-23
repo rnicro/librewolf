@@ -1,6 +1,6 @@
 # LibreWolf — Skylake / Void Linux musl
 
-LibreWolf 158.0, tuned for an Intel Core i3-6100U (Skylake), 4 GB RAM, HDD, and Void Linux `x86_64-musl`. The binary requires a Skylake-class CPU or newer.
+LibreWolf 158.0.1, tuned for an Intel Core i3-6100U (Skylake), 4 GB RAM, HDD, and Void Linux `x86_64-musl`. The binary requires a Skylake-class CPU or newer.
 
 ## Native Wayland runtime
 
@@ -29,8 +29,8 @@ If you want to verify a download, calculate its checksum locally and compare it 
 ## Target tuning
 
 - C/C++: Clang/LLD/LLVM 23 (matched to Void's Rust LLVM version), `-O2 -march=skylake`; Rust: `-C target-cpu=skylake`.
-- Build: cross-language LLVM LTO and PGO are enabled by default in CI.
-- PGO: CI restores a profile cache keyed to source and profile-relevant build inputs; on a cache miss it attempts to generate a fresh profile. If generation fails or the profile is invalid, the recipe falls back to a non-PGO LTO build. Verify performance against an LTO-only baseline before treating PGO as a runtime win.
+- Build: cross-language LLVM LTO is the default; experimental PGO is disabled unless requested in a manual workflow dispatch.
+- PGO: a manual workflow dispatch can opt in. Profiles are checksum-validated and cached by source and profile-relevant inputs; failed or invalid profile generation falls back to a regular LTO build. Benchmark against an LTO-only baseline before assuming a runtime win.
 - Memory: unload tabs under low-memory conditions; constrain Fission process reuse and prelaunch.
 - HDD: disable new-tab preload, save session state every 30 seconds, and cap cache-chunk memory at 16 MiB per cache class.
 - Audio: ALSA and PulseAudio protocol support, including `pipewire-pulse`.
@@ -39,7 +39,7 @@ These settings prioritize resource stability on the target; process limits trade
 
 ## Build and release
 
-- Source revision: LibreWolf 158.0-1; package revision: 4.
+- Source revision: LibreWolf 158.0.1-2; package revision: 1.
 - CI builds on a hosted runner. Build parallelism follows runner CPU and RAM capacity.
 - CI validates the source checksum, caches source/compiler/Void dependencies, and publishes only `.xbps` package files. Release tags and release titles use the LibreWolf version alone. PGO profiles are cached when available and regenerated when the cache key changes.
 - Build permissions are read-only; publishing runs separately and only for `master`.
@@ -68,7 +68,7 @@ The sections above are the quick-start summary. This reference records the full 
 | CPU | Intel Core i3-6100U, Skylake, 2 cores / 4 threads |
 | RAM/storage | 4 GB DDR3 / HDD |
 | Display/audio | Native Wayland / ALSA and PulseAudio protocol |
-| Source/package revision | LibreWolf 158.0, source revision 1, Void package revision 4 |
+| Source/package revision | LibreWolf 158.0.1, source revision 2, Void package revision 1 |
 
 Priorities are runtime responsiveness on the actual Skylake machine, memory stability, reduced unnecessary HDD writes, useful CI throughput, reuse of expensive build outputs, and a small maintainable patch set. The **build host and runtime target are different machines**: compile and link concurrency should follow the actual GitHub runner's CPU/RAM, not the laptop's four hardware threads.
 
