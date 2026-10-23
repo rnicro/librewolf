@@ -21,7 +21,7 @@ case "$XBPS_TARGET_MACHINE" in
 esac
 
 _llvmver=23
-_wasi_llvmver=22
+_wasi_llvmver=23
 hostmakedepends="unzip zip pkg-config perl python3 yasm rust
  cargo rust-sccache llvm${_llvmver} clang${_llvmver} clang${_llvmver}-devel lld${_llvmver} nodejs cbindgen nasm which
  tar xz $(vopt_if pgo 'xvfb-run dbus mesa-dri vulkan-loader pciutils')
