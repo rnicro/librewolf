@@ -61,8 +61,16 @@ grep -Fq 'prepare_wasi_builtins()' "$template" || {
   echo "template must bridge Void's per-target WASI compiler-rt layout to Clang's target directories" >&2
   exit 1
 }
-grep -Fq 'find "$wasi_runtime_root" -type f' "$template" || {
+grep -Fq 'local -a wasi_runtime_roots=(' "$template" || {
+  echo "template must support current and legacy WASI compiler-rt install layouts" >&2
+  exit 1
+}
+grep -Fq 'find "$runtime_root" -type f' "$template" || {
   echo "template must discover the installed WASI compiler-rt archive without assuming its directory layout" >&2
+  exit 1
+}
+grep -Fq '[ -s "$target_archive" ] && continue' "$template" || {
+  echo "template must preserve builtins already installed for a target triple" >&2
   exit 1
 }
 grep -Fq "libclang_rt.builtins-wasm32.a" "$template" || {
