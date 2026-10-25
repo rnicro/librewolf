@@ -35,8 +35,6 @@ jobs:
     timeout-minutes: 360
     env:
       XBPS_TARGET_ARCH: x86_64-musl
-      SCCACHE_GHA_ENABLED: "on"
-      SCCACHE_GHA_VERSION: "librewolf-x86_64-musl-skylake-llvm23-v3"
       LIBREWOLF_PGO_CACHE_VERSION: "v12"
     steps:
       - name: free space
@@ -106,6 +104,7 @@ jobs:
 
       - name: restore LibreWolf PGO profile
         id: pgo-cache
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.pgo }}
         uses: actions/cache/restore@v6
         with:
           path: void-packages/hostdir/pgo-cache
@@ -153,53 +152,22 @@ jobs:
           export PATH="/opt/xbps/usr/bin/:$PATH"
           ./xbps-src -A "$XBPS_TARGET_ARCH" binary-bootstrap
 
-      - name: prepare sccache environment
-        uses: actions/github-script@v9
+      - name: restore sccache object cache
+        id: sccache-cache
+        uses: actions/cache/restore@v6
         with:
-          script: |
-            const fs = require("fs");
-            const path = require("path");
-
-            const cacheUrl = process.env.ACTIONS_RESULTS_URL;
-            const runtimeToken = process.env.ACTIONS_RUNTIME_TOKEN;
-            if (!cacheUrl || !runtimeToken) {
-              throw new Error("GitHub Actions cache runtime credentials are unavailable");
-            }
-
-            core.setSecret(runtimeToken);
-
-            const quote = (value) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
-            const envFile = path.join(
-              process.env.GITHUB_WORKSPACE,
-              "void-packages",
-              "hostdir",
-              "sccache-env",
-            );
-
-            fs.writeFileSync(
-              envFile,
-              [
-                `export SCCACHE_GHA_ENABLED=${quote(process.env.SCCACHE_GHA_ENABLED)}`,
-                `export SCCACHE_GHA_VERSION=${quote(process.env.SCCACHE_GHA_VERSION)}`,
-                `export ACTIONS_RESULTS_URL=${quote(cacheUrl)}`,
-                `export ACTIONS_RUNTIME_TOKEN=${quote(runtimeToken)}`,
-                "export SCCACHE_MULTILEVEL_CHAIN=disk,gha",
-                "export SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=ignore",
-                "export SCCACHE_GHA_RW_MODE=READ_WRITE",
-                "export SCCACHE_ERROR_LOG=/host/sccache-error.log",
-                "export SCCACHE_LOG=warn",
-              ].join("\n") + "\n",
-              { mode: 0o600 },
-            );
-            fs.chmodSync(envFile, 0o600);
-            core.info(`prepared ${envFile}`);
+          path: void-packages/hostdir/sccache
+          # A unique key permits new objects to be saved after each build.
+          key: sccache-disk-v1-${{ runner.os }}-${{ env.XBPS_TARGET_ARCH }}-skylake-llvm23-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            sccache-disk-v1-${{ runner.os }}-${{ env.XBPS_TARGET_ARCH }}-skylake-llvm23-
 
       - name: restore LibreWolf source
         id: source-cache
         uses: actions/cache/restore@v6
         with:
           path: void-packages/hostdir/sources/librewolf-${{ steps.meta.outputs.version }}/${{ steps.meta.outputs.distfile }}
-          key: librewolf-source-v6-${{ steps.meta.outputs.sha256 }}
+          key: librewolf-source-v7-${{ steps.meta.outputs.sha256 }}
 
       - name: fetch and verify LibreWolf source
         timeout-minutes: 20
@@ -240,7 +208,7 @@ jobs:
         continue-on-error: true
         with:
           path: void-packages/hostdir/sources/librewolf-${{ steps.meta.outputs.version }}/${{ steps.meta.outputs.distfile }}
-          key: librewolf-source-v6-${{ steps.meta.outputs.sha256 }}
+          key: librewolf-source-v7-${{ steps.meta.outputs.sha256 }}
 
       - name: build package
         timeout-minutes: 350
@@ -254,10 +222,10 @@ jobs:
           chmod 644 hostdir/source-date-epoch
           rm -f hostdir/sccache-error.log
 
-          # Reserve 2 GiB for the OS/linker overhead and budget about 3 GiB per worker.
+          # Reserve 1.5 GiB for the OS/linker and budget about 3 GiB per worker.
           cpu_jobs="$(nproc)"
           available_kib="$(awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo)"
-          reserved_kib=$((2 * 1024 * 1024))
+          reserved_kib=$((1536 * 1024))
           per_job_kib=$((3 * 1024 * 1024))
           if [ "$available_kib" -gt "$reserved_kib" ]; then
             memory_jobs=$(((available_kib - reserved_kib) / per_job_kib))
@@ -290,8 +258,16 @@ jobs:
             echo "No sccache backend errors were logged."
           fi
 
+      - name: save sccache object cache
+        if: ${{ always() && !cancelled() && steps.sccache-cache.outputs.cache-primary-key != '' }}
+        uses: actions/cache/save@v6
+        continue-on-error: true
+        with:
+          path: void-packages/hostdir/sccache
+          key: ${{ steps.sccache-cache.outputs.cache-primary-key }}
+
       - name: save LibreWolf PGO profile
-        if: ${{ always() && steps.pgo-cache.outputs.cache-hit != 'true' && hashFiles('void-packages/hostdir/pgo-cache/merged.profdata') != '' && hashFiles('void-packages/hostdir/pgo-cache/jarlog') != '' }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.pgo && steps.pgo-cache.outputs.cache-hit != 'true' && hashFiles('void-packages/hostdir/pgo-cache/merged.profdata') != '' && hashFiles('void-packages/hostdir/pgo-cache/jarlog') != '' }}
         uses: actions/cache/save@v6
         continue-on-error: true
         with:
@@ -305,11 +281,6 @@ jobs:
         with:
           path: void-packages/hostdir/repocache-${{ env.XBPS_TARGET_ARCH }}
           key: void-repocache-v3-${{ env.XBPS_TARGET_ARCH }}-${{ hashFiles('void-packages/xbps-src', 'void-packages/srcpkgs/base-chroot/template') }}-${{ steps.void-cache-epoch.outputs.week }}
-
-      - name: remove sccache credentials
-        if: ${{ always() }}
-        working-directory: void-packages
-        run: rm -f hostdir/sccache-env
 
       - name: stage XBPS packages only
         working-directory: void-packages/hostdir/binpkgs/

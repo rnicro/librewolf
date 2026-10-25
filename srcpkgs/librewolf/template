@@ -70,7 +70,7 @@ do_build() {
 	export RUSTC_WRAPPER=/usr/bin/sccache
 	export SCCACHE_CLIENT_SIDE=false
 	export SCCACHE_DIR=/host/sccache
-	export SCCACHE_CACHE_SIZE=16G
+	export SCCACHE_CACHE_SIZE=2G
 	export SCCACHE_CACHE_ZSTD_LEVEL=1
 	export SCCACHE_IDLE_TIMEOUT=0
 	mkdir -p "$SCCACHE_DIR"
@@ -78,11 +78,7 @@ do_build() {
 	unset HOST_CXXFLAGS
 	export LDFLAGS="${LDFLAGS:-} -Wl,-rpath=/usr/lib/librewolf"
 
-	# xbps-src sanitizes the outer CI environment. Restore the GHA-backed
-	# sccache settings through the hostdir bind mount created by CI.
-	if [ -r /host/sccache-env ]; then
-		. /host/sccache-env
-	fi
+	# CI persists this local object cache between runs via actions/cache.
 
 	if [ "$build_option_clang" ]; then
 		export CC=clang

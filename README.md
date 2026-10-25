@@ -41,7 +41,7 @@ These settings prioritize resource stability on the target; process limits trade
 
 - Source revision: LibreWolf 158.0.1-2; package revision: 2.
 - CI builds on a hosted runner. Build parallelism follows runner CPU and RAM capacity.
-- CI validates source checksums, uses versioned content-addressed source/compiler caches, and publishes only `.xbps` package files. Release tags include the upstream version and XBPS package revision (for example, `158.0.1-r2`); a tag can be reused only when package inputs are unchanged. The browser build date is derived from the last commit touching `srcpkgs/librewolf`. PGO remains opt-in because the last profiling attempt failed and fell back to LTO.
+- CI verifies the source archive SHA-256 on every build, uses versioned source and Void package caches, and persists a bounded local sccache object cache through GitHub Actions cache snapshots. Build parallelism adapts to available runner memory, with up to four jobs when RAM permits. Only `.xbps` package files are published. Release tags include the upstream version and XBPS package revision (for example, `158.0.1-r2`); a tag can be reused only when package inputs are unchanged. The browser build date is derived from the last commit touching `srcpkgs/librewolf`. PGO remains opt-in because profiling has not yet been demonstrated to produce a valid reusable profile.
 - Build permissions are read-only; publishing runs separately and only for `master`.
 
 ## Key paths
