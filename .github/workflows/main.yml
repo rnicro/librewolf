@@ -11,10 +11,10 @@ on:
   workflow_dispatch:
     inputs:
       pgo:
-        description: "Enable experimental PGO (slower; LTO-only is the default)"
+        description: "Enable PGO for runtime optimization; disable for an LTO-only baseline"
         type: boolean
         required: false
-        default: false
+        default: true
 
 concurrency:
   group: librewolf-${{ github.ref }}
@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 360
     env:
       XBPS_TARGET_ARCH: x86_64-musl
-      LIBREWOLF_PGO_CACHE_VERSION: "v12"
+      LIBREWOLF_PGO_CACHE_VERSION: "v13"
     steps:
       - name: free space
         run: |
@@ -102,15 +102,24 @@ jobs:
           bash -n .github/scripts/validate-template.sh
           bash .github/scripts/validate-template.sh srcpkgs/librewolf/template void-packages/srcpkgs/rust/template void-packages/srcpkgs/wasi-sdk/template
 
+      - name: fingerprint PGO build inputs
+        id: pgo-key
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.pgo }}
+        run: |
+          set -euo pipefail
+          # Packaging-only revision bumps do not change the generated profile.
+          template_hash="$(sed '/^revision=/d' srcpkgs/librewolf/template | sha256sum | awk '{print $1}')"
+          echo "template_hash=$template_hash" >> "$GITHUB_OUTPUT"
+
       - name: restore LibreWolf PGO profile
         id: pgo-cache
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.pgo }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.pgo }}
         uses: actions/cache/restore@v6
         with:
           path: void-packages/hostdir/pgo-cache
           # PGO validity follows source + downstream patches + this explicit version.
           # Bump LIBREWOLF_PGO_CACHE_VERSION when profile-relevant build/workload inputs change.
-          key: librewolf-pgo-${{ env.LIBREWOLF_PGO_CACHE_VERSION }}-${{ steps.meta.outputs.sha256 }}-${{ hashFiles('srcpkgs/librewolf/template', 'srcpkgs/librewolf/patches/**', 'srcpkgs/librewolf/files/stab.h', 'void-packages/srcpkgs/llvm23/template', 'void-packages/srcpkgs/rust/template', 'void-packages/srcpkgs/cargo/template', 'void-packages/srcpkgs/wasi-sdk/template', 'void-packages/srcpkgs/rust-sccache/template', 'void-packages/srcpkgs/base-chroot/template') }}
+          key: librewolf-pgo-${{ env.LIBREWOLF_PGO_CACHE_VERSION }}-${{ steps.meta.outputs.sha256 }}-${{ steps.pgo-key.outputs.template_hash }}-${{ hashFiles('srcpkgs/librewolf/patches/**', 'srcpkgs/librewolf/files/stab.h', 'void-packages/srcpkgs/llvm23/template', 'void-packages/srcpkgs/rust/template', 'void-packages/srcpkgs/cargo/template', 'void-packages/srcpkgs/wasi-sdk/template', 'void-packages/srcpkgs/rust-sccache/template', 'void-packages/srcpkgs/base-chroot/template') }}
 
       - name: prepare xbps-static
         run: |
@@ -214,7 +223,7 @@ jobs:
         timeout-minutes: 350
         working-directory: void-packages
         env:
-          PGO_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.pgo }}
+          PGO_BUILD: ${{ github.event_name != 'workflow_dispatch' || inputs.pgo }}
         run: |
           set -euo pipefail
           export PATH="/opt/xbps/usr/bin/:$PATH"
@@ -240,9 +249,9 @@ jobs:
           pgo_options=()
           if [ "${PGO_BUILD:-false}" = "true" ]; then
             pgo_options=(-o pgo)
-            echo "Experimental PGO enabled for this manually dispatched build."
+            echo "PGO enabled: release build or explicit manual opt-in."
           else
-            echo "Using the reliable LTO-only default; PGO is opt-in."
+            echo "LTO-only baseline requested; PGO is disabled for this run."
           fi
           ./xbps-src -A "$XBPS_TARGET_ARCH" "${pgo_options[@]}" pkg -j"$build_jobs" librewolf
 
@@ -267,12 +276,12 @@ jobs:
           key: ${{ steps.sccache-cache.outputs.cache-primary-key }}
 
       - name: save LibreWolf PGO profile
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.pgo && steps.pgo-cache.outputs.cache-hit != 'true' && hashFiles('void-packages/hostdir/pgo-cache/merged.profdata') != '' && hashFiles('void-packages/hostdir/pgo-cache/jarlog') != '' }}
+        if: ${{ always() && !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.pgo) && steps.pgo-cache.outputs.cache-hit != 'true' && hashFiles('void-packages/hostdir/pgo-cache/merged.profdata') != '' && hashFiles('void-packages/hostdir/pgo-cache/jarlog') != '' }}
         uses: actions/cache/save@v6
         continue-on-error: true
         with:
           path: void-packages/hostdir/pgo-cache
-          key: librewolf-pgo-${{ env.LIBREWOLF_PGO_CACHE_VERSION }}-${{ steps.meta.outputs.sha256 }}-${{ hashFiles('srcpkgs/librewolf/template', 'srcpkgs/librewolf/patches/**', 'srcpkgs/librewolf/files/stab.h', 'void-packages/srcpkgs/llvm23/template', 'void-packages/srcpkgs/rust/template', 'void-packages/srcpkgs/cargo/template', 'void-packages/srcpkgs/wasi-sdk/template', 'void-packages/srcpkgs/rust-sccache/template', 'void-packages/srcpkgs/base-chroot/template') }}
+          key: librewolf-pgo-${{ env.LIBREWOLF_PGO_CACHE_VERSION }}-${{ steps.meta.outputs.sha256 }}-${{ steps.pgo-key.outputs.template_hash }}-${{ hashFiles('srcpkgs/librewolf/patches/**', 'srcpkgs/librewolf/files/stab.h', 'void-packages/srcpkgs/llvm23/template', 'void-packages/srcpkgs/rust/template', 'void-packages/srcpkgs/cargo/template', 'void-packages/srcpkgs/wasi-sdk/template', 'void-packages/srcpkgs/rust-sccache/template', 'void-packages/srcpkgs/base-chroot/template') }}
 
       - name: save Void binary package cache
         if: ${{ always() && !cancelled() && steps.void-cache-epoch.outputs.week != '' && steps.xbps-cache.outputs.cache-hit != 'true' }}

@@ -10,7 +10,7 @@ Built with GTK3 `cairo-gtk3-wayland` for `dwl` without Xwayland or an X11 server
 MOZ_ENABLE_WAYLAND=1 librewolf-wayland
 ```
 
-Verify `about:support` → **Window Protocol** reports `wayland`, not `xwayland`. Xvfb/X11 is used only by the optional CI PGO profiling path; it is not a runtime requirement.
+Verify `about:support` → **Window Protocol** reports `wayland`, not `xwayland`. Xvfb/X11 is used only by CI's temporary PGO profiling path; it is not a runtime requirement.
 
 
 ## Download and install
@@ -28,11 +28,11 @@ If you want to verify a download, calculate its checksum locally and compare it 
 
 ## Target tuning
 
-- C/C++: Clang/LLD/LLVM 23 (matched to Void's Rust LLVM version), `-O2 -march=skylake`; Rust: `-C target-cpu=skylake`.
-- Build: cross-language LLVM LTO is the default; experimental PGO is disabled unless requested in a manual workflow dispatch.
-- PGO: a manual workflow dispatch can opt in. Profiles are checksum-validated and cached by source and profile-relevant inputs; failed or invalid profile generation falls back to a regular LTO build. Benchmark against an LTO-only baseline before assuming a runtime win.
-- Memory: unload tabs under low-memory conditions; constrain Fission process reuse and prelaunch.
-- HDD: disable new-tab preload, save session state every 30 seconds, and cap cache-chunk memory at 16 MiB per cache class.
+- C/C++: Clang/LLD/LLVM 23 (matched to Void's Rust LLVM version), `-O2 -march=skylake`; Rust: `-C target-cpu=skylake` and explicit optimization level 2 in `mozconfig`.
+- Build: cross-language full LTO plus PGO are enabled for release CI builds. A manual workflow dispatch can disable PGO for an LTO-only baseline.
+- PGO: release builds use a profile-optimized final binary. The instrumented browser's temporary CI profile run disables child-process sandboxes only because hosted musl/chroot builds can deny the required user namespaces; the shipped browser retains normal sandboxing. Profiles are validated and cached by source, normalized recipe and toolchain inputs, and failed/invalid profile generation falls back to LTO-only.
+- Memory: unload inactive tabs under memory pressure, cap the shared content pool and avoid a second isolated process per site while preserving Fission site isolation.
+- HDD: disable new-tab preload, save session state every 30 seconds, and allow up to 24 MiB per disk-cache write-buffer class to reduce cache write failures on slow storage.
 - Audio: ALSA and PulseAudio protocol support, including `pipewire-pulse`.
 
 These settings prioritize resource stability on the target; process limits trade some parallelism for lower memory pressure.
@@ -41,7 +41,7 @@ These settings prioritize resource stability on the target; process limits trade
 
 - Source revision: LibreWolf 158.0.1-2; package revision: 3.
 - CI builds on a hosted runner. Build parallelism follows runner CPU and RAM capacity.
-- CI verifies the source archive SHA-256 on every build, uses versioned source and Void package caches, and persists a bounded local sccache object cache through GitHub Actions cache snapshots. Build parallelism adapts to available runner memory, with up to four jobs when RAM permits. Only `.xbps` package files are published. Release tags include the upstream version and XBPS package revision (for example, `158.0.1-r3`); a tag can be reused only when package inputs are unchanged. The browser build date is derived from the last commit touching `srcpkgs/librewolf`. PGO remains opt-in because profiling has not yet been demonstrated to produce a valid reusable profile.
+- CI verifies the source archive SHA-256 on every build, uses versioned source and Void package caches, and persists a bounded local sccache object cache through GitHub Actions cache snapshots. Build concurrency scales with runner CPU/RAM (four jobs on the standard 4-vCPU runner when memory allows; larger configured runners are used automatically). Only `.xbps` package files are published. Release tags include the upstream version and XBPS package revision (for example, `158.0.1-r3`); a tag can be reused only when package inputs are unchanged. The browser build date is derived from the last commit touching `srcpkgs/librewolf`. PGO is enabled for release CI and safely falls back to LTO-only if profile generation fails.
 - Build permissions are read-only; publishing runs separately and only for `master`.
 
 ## Key paths
@@ -86,18 +86,18 @@ Installed in `srcpkgs/librewolf/files/vendor.js`:
 | `browser.tabs.unloadOnLowMemory` | true | Permit inactive-tab unloading under memory pressure |
 | `browser.sessionstore.interval` | 30000 ms | Reduce session-store write frequency on HDD |
 | `browser.newtab.preload` | false | Do not preload an unused new-tab page |
-| `browser.cache.disk.max_chunks_memory_usage` | 16384 KiB | 16 MiB cache-chunk memory cap |
-| `browser.cache.disk.max_priority_chunks_memory_usage` | 16384 KiB | Same cap for priority chunks |
-| `dom.ipc.processCount` | 4 | General content-process limit |
-| `dom.ipc.processCount.webIsolated` | 2 | Isolated-site process pool/reuse limit |
-| `dom.ipc.processPrelaunch.fission.number` | 1 | One Fission prelaunch |
+| `browser.cache.disk.max_chunks_memory_usage` | 24576 KiB | 24 MiB normal disk-cache write buffer |
+| `browser.cache.disk.max_priority_chunks_memory_usage` | 24576 KiB | 24 MiB priority write buffer for HTML/CSS/JS and similar resources |
+| `dom.ipc.processCount` | 4 | Shared content-process pool limit |
+| `dom.ipc.processCount.webIsolated` | 1 | One isolated process per site to reduce per-site process overhead |
+| `dom.ipc.processPrelaunch.fission.number` | 1 | One prelaunch; Firefox applies a one-process low-memory cap at 4 GiB RAM or less |
 | `geo.provider.network.url` | Mozilla location service | Avoid the default Google geolocation provider |
 
 Earlier README revisions also documented `browser.low_commit_space_threshold_mb=384` and `browser.low_commit_space_threshold_percent=10`. They are no longer present in the current preference file and must not be described as active settings. The current numbers prioritize resource stability and accept some loss of parallelism/preloading; they are not universal recommendations.
 
 ### Compiler, LTO, and linker details
 
-- C/C++ uses Clang 23 and `-O2 -march=skylake`; Rust uses `-C target-cpu=skylake` and `RUSTC_OPT_LEVEL=2`. The current template does not separately add `-mtune=skylake`, although older README revisions documented it.
+- C/C++ uses Clang 23 and `-O2 -march=skylake`; Rust uses `-C target-cpu=skylake` and explicitly passes `RUSTC_OPT_LEVEL=2` in `mozconfig`, as recommended by Mozilla's build docs. The `-march=skylake` setting already selects Skylake-specific tuning; an extra `-mtune=skylake` is redundant.
 - Clang, LLVM, LLD and the LLVM major used by Void's Rust template are explicitly aligned at version 23. The validator checks this before compilation because incompatible LLVM bitcode can break cross-language LTO.
 - Void's current `wasi-sdk` supplies LLVM 23 compiler-rt builtins for `wasm32-unknown-wasip1` and `wasm32-unknown-wasip1-threads`. Clang 23 expects corresponding target-triple directories under its own resource root. The build recipe maps the installed archive into the matching Clang 23 directories and fails early with a clear error if the archive is absent. This is a build-time compatibility fix; the final package's native x86_64 runtime is unaffected.
 - Rust bindgen requires the unversioned `libclang.so`, which Void ships in `clang23-devel` under `/usr/lib/llvm/23/lib`. The package installs that build-only dependency and points `--with-libclang-path` at the versioned library directory instead of the obsolete `/usr/lib` path.
@@ -121,9 +121,9 @@ Audio backend configuration disables all backends first, then enables ALSA and t
 
 ### PGO failure handling
 
-PGO is **experimental and disabled by default** because profile-server startup crashed across earlier built-in headless, synthetic native-Wayland/Weston and Xvfb experiments. An explicit manual workflow dispatch can request PGO; ordinary push builds remain LTO-only. Only PGO-enabled runs restore or save the PGO cache.
+PGO is enabled by default for release CI builds, and a manual dispatch can disable it to create an LTO-only baseline. Earlier profiling failed because sandboxed child processes crashed in the hosted build container; this matches Mozilla's documented container issue ([Bug 1914446](https://bugzilla.mozilla.org/show_bug.cgi?id=1914446)). The temporary instrumented profile run now disables the child-process sandboxes only in its own environment; the final browser remains sandboxed. The workflow restores or saves profiles only for PGO-enabled runs.
 
-When requested, the recipe checks for `merged.profdata` and `jarlog`, and validates the profile using `llvm-profdata`. On a miss, the instrumented browser is built and packaged, then `build/pgo/profileserver.py` runs inside D-Bus through `xvfb-run` with `GDK_BACKEND=x11`, `MOZ_ENABLE_WAYLAND=0`, a 1920×1080×24 display and a 30-minute timeout. These are build-time dependencies only; the final package still uses native Wayland.
+The recipe checks for `merged.profdata` and `jarlog`, and validates profiles using `llvm-profdata`. On a cache miss, it builds and packages an instrumented browser, then runs `build/pgo/profileserver.py` under D-Bus and `xvfb-run`. The temporary CI profile environment uses X11 and software rendering and disables child-process sandboxes to work around restricted user namespaces in the build container. These environment variables are not embedded in the package. The final package keeps its native Wayland configuration and normal sandbox defaults.
 
 If profiling fails or its files are missing/invalid, the template prints the relevant profile logs, removes the bad output/cache, restores the original mozconfig, clobbers the instrumented objdir and continues with a standard LTO build. A successful profile is cached only after checking both the profile and jarlog. Thus PGO failure should not prevent a standard non-PGO build from succeeding.
 
@@ -133,7 +133,7 @@ The workflow:
 1. Runs on pushes to `master` that touch the package, workflow or validation scripts, or from manual dispatch.
 2. Frees runner disk space when less than 60 GiB is available, checks out this repository and Void's `void-packages` master, then overlays this package.
 3. Pre-validates the template and LLVM/Rust toolchain match; prepares static XBPS and the runner's user-namespace environment; bootstraps `xbps-src`.
-4. Restores the source, Void binary-package and (only when PGO is requested) profile caches. The Void binary-package cache rotates weekly so it refreshes rather than staying frozen at its first immutable entry.
+4. Restores the source, Void binary-package and (on PGO-enabled builds) profile caches. The Void binary-package cache rotates weekly, while the PGO cache key excludes only the XBPS `revision=` line so packaging-only bumps can reuse a validated profile.
 5. Restores the local `sccache` directory from an Actions cache snapshot; verified source and dependency archives are handled by separate caches.
 6. Reserves approximately 1.5 GiB for the OS/linker and budgets around 3 GiB per concurrent worker, then caps workers by visible CPU count.
 7. Saves the updated local compiler cache under a new immutable per-run cache key, and transfers a short-lived artifact containing only the generated `.xbps` packages to publishing.
@@ -141,14 +141,14 @@ The workflow:
 
 The build job is read-only for repository contents; the separate publish job has write permission. The default runner is Ubuntu 24.04 and `LIBREWOLF_RUNNER` can override it. Total workflow timeout is 360 minutes; the package build step is limited to 350 minutes. New commits do not cancel an active expensive build, but replace the queued pending run for that ref. README-only commits do not match the build path filters.
 
-The validator checks shell syntax, package name, version, positive package revision, source revision, a 64-character SHA-256 checksum, exactly one HTTPS source URL and the expected distfile name. It also verifies the pinned LLVM major matches Clang/LLD and Void Rust, requires the native GTK Wayland toolkit and the Xvfb PGO configuration, confirms PGO remains opt-in with fallback, rejects the obsolete headless/Wayland PGO path and rejects forced global LTO partitions. Metadata exported to Actions includes the checksum, distfile, version, source revision and release tag.
+The validator checks shell syntax, package name, version, positive package revision, source revision, a 64-character SHA-256 checksum, exactly one HTTPS source URL and the expected distfile name. It verifies the pinned LLVM major matches Clang/LLD and Void Rust, requires Rust optimization level 2, native GTK Wayland and Xvfb PGO, checks CI sandbox overrides exist for the profiling run while rejecting sandbox-disable configure flags in the shipped browser, confirms the package-option default keeps local PGO opt-in with an LTO fallback, rejects obsolete headless/Wayland PGO and forced global LTO partitions. Metadata exported to Actions includes the checksum, distfile, version, source revision and release tag.
 
 ### Cache inventory and invalidation
 
 | Cache | Current key/namespace | Validation and purpose |
 |---|---|---|
 | Source archive | `librewolf-source-v7-<SHA256>` | Re-hash every restored archive against the template checksum; v7 isolates a stale cache entry that repeatedly failed validation |
-| Experimental PGO | `LIBREWOLF_PGO_CACHE_VERSION=v12` | Manual opt-in only; source digest, recipe, patches, `stab.h`, LLVM 23/Rust/Cargo/WASI/sccache/base-chroot inputs |
+| PGO profile | `LIBREWOLF_PGO_CACHE_VERSION=v13` | Release default; source digest, normalized recipe (ignores packaging-only revision), patches, `stab.h`, LLVM 23/Rust/Cargo/WASI/sccache/base-chroot inputs |
 | Void binary dependencies | `void-repocache-v3` | Weekly immutable snapshot; restores the previous v2 cache or the latest matching v3 week, then saves a refreshed snapshot. This updates package downloads without creating a cache for every commit. |
 | Compiler cache | `sccache-disk-v1-<OS>-x86_64-musl-skylake-llvm23-<run-id>-<attempt>` | Persists the local `/host/sccache` directory through Actions cache snapshots; unique per-run keys let each build save updated objects, with a 2 GiB local cache cap |
 
@@ -186,6 +186,7 @@ The current recipe also removes `sys/single_threaded.h` from Firefox's generated
 | Oct 16 | Tried headless and native-Wayland PGO, then switched to optional Xvfb PGO after profile startup failures; added an LTO-only fallback, validation guards and packaging/CI cleanup. |
 | Oct 17 | Pinned Clang/LLVM/LLD to LLVM 23 to match Void Rust, removed forced LTO partitioning, corrected bindgen's versioned `libclang.so` path, and bridged Void's WASI runtime layout to Clang 23. |
 | Oct 23 | Bumped LibreWolf to 158.0.1-2, pinned the source digest, made PGO opt-in, aligned WASI discovery with Void LLVM 23, repaired source-cache invalidation, stabilized build dates, and versioned releases by XBPS revision. |
+| Oct 25 | Enabled PGO for release CI after matching the profile-server crash to Mozilla's sandboxed-container issue; added CI-only sandbox overrides, explicit Rust optimization level 2, a normalized PGO-cache fingerprint, and lower per-site process overhead for the 4 GB target. |
 
 Key lessons from failures: don't copy unmanaged tools into an XBPS chroot; use explicit compiler-cache paths; validate package/source metadata before costly builds; re-hash source-cache entries; validate LLVM profiles instead of trusting file existence; make cache keys specific to profile-affecting inputs; don't base CI worker counts on the laptop; don't force LTO partitions that can break sandbox linkage; and remove stale patches when upstream fixes or source layout make them obsolete.
 
@@ -211,6 +212,8 @@ Routine changes should be committed directly to `master`. Do not create feature 
 - [Void `void-packages`](https://github.com/void-linux/void-packages)
 - [Void Firefox package](https://github.com/void-linux/void-packages/tree/master/srcpkgs/firefox)
 - [Mozilla Firefox build documentation](https://firefox-source-docs.mozilla.org/build/buildsystem.html)
+- [Mozilla performance and Rust optimization guidance](https://firefox-source-docs.mozilla.org/performance/Benchmarking.html)
+- [Firefox PGO documentation](https://firefox-source-docs.mozilla.org/build/buildsystem/pgo.html)
 - [Mozilla build configuration](https://firefox-source-docs.mozilla.org/setup/configuring_build_options.html)
 - [Mozilla `sccache`](https://github.com/mozilla/sccache)
 

@@ -210,6 +210,7 @@ do_build() {
 	MOZ_APP_REMOTINGNAME=librewolf
 	ac_add_options --disable-default-browser-agent
 	ac_add_options --enable-rust-simd
+	ac_add_options RUSTC_OPT_LEVEL=2
 
 	ac_add_options --with-app-name=librewolf
 	ac_add_options --with-branding=browser/branding/librewolf
@@ -273,12 +274,21 @@ do_build() {
 			pgo_runtime_dir="$(mktemp -d "${wrksrc}/pgo-runtime-XXXXXX")"
 			if (
 				trap 'rm -rf -- "$pgo_runtime_dir"' EXIT
+				# These overrides apply only to the throwaway instrumented CI profile run.
 				LLVM_PROFDATA=llvm-profdata \
 				JARLOG_FILE="$PWD/jarlog" \
 				GDK_BACKEND=x11 \
 				LD_LIBRARY_PATH="$PWD/obj/dist/librewolf" \
 				XDG_RUNTIME_DIR="$pgo_runtime_dir" \
 				MOZ_ENABLE_WAYLAND=0 \
+				MOZ_DISABLE_CONTENT_SANDBOX=1 \
+				MOZ_DISABLE_GMP_SANDBOX=1 \
+				MOZ_DISABLE_GPU_SANDBOX=1 \
+				MOZ_DISABLE_RDD_SANDBOX=1 \
+				MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1 \
+				MOZ_DISABLE_UTILITY_SANDBOX=1 \
+				MOZ_DISABLE_VR_SANDBOX=1 \
+				LIBGL_ALWAYS_SOFTWARE=1 \
 					timeout --foreground 30m xvfb-run -a -s "-screen 0 1920x1080x24 -nolisten local" \
 					dbus-run-session -- ./mach python build/pgo/profileserver.py
 			); then

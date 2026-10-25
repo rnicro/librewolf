@@ -16,14 +16,16 @@ pref("browser.sessionstore.interval", 30000);
 // Avoid preloading a new-tab document before it is needed.
 pref("browser.newtab.preload", false);
 
-// Keep cache chunk memory bounded on a 4 GB system (values are KiB).
-pref("browser.cache.disk.max_chunks_memory_usage", 16384);
-pref("browser.cache.disk.max_priority_chunks_memory_usage", 16384);
+// Bound pending disk-cache writes while retaining enough buffering for a slow HDD.
+// These limits are KiB per cache class (normal and priority).
+pref("browser.cache.disk.max_chunks_memory_usage", 24576);
+pref("browser.cache.disk.max_priority_chunks_memory_usage", 24576);
 
-// Fission's isolated-site pool is the relevant cap for ordinary web pages.
-// Reuse at most two isolated processes per site and prelaunch only one.
+// Keep Fission site isolation while avoiding a second isolated process per site.
+// A single prelaunch is retained for startup responsiveness; Firefox also caps
+// preallocation to one process on systems with 4 GiB RAM or less.
 pref("dom.ipc.processCount", 4);
-pref("dom.ipc.processCount.webIsolated", 2);
+pref("dom.ipc.processCount.webIsolated", 1);
 pref("dom.ipc.processPrelaunch.fission.number", 1);
 
 // The default is Google and we don't have API keys for it.

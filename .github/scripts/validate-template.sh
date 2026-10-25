@@ -158,6 +158,27 @@ grep -Fq 'MOZ_ENABLE_WAYLAND=0' "$template" || {
   echo "PGO must disable Firefox's Wayland display selection under Xvfb" >&2
   exit 1
 }
+grep -Fq 'ac_add_options RUSTC_OPT_LEVEL=2' "$template" || {
+  echo "Rust code must use optimization level 2 for browser rendering and styling hot paths" >&2
+  exit 1
+}
+for sandbox_env in \
+  MOZ_DISABLE_CONTENT_SANDBOX \
+  MOZ_DISABLE_GMP_SANDBOX \
+  MOZ_DISABLE_GPU_SANDBOX \
+  MOZ_DISABLE_RDD_SANDBOX \
+  MOZ_DISABLE_SOCKET_PROCESS_SANDBOX \
+  MOZ_DISABLE_UTILITY_SANDBOX \
+  MOZ_DISABLE_VR_SANDBOX; do
+  grep -Fq "$sandbox_env=1" "$template" || {
+    echo "PGO CI profile run must disable the $sandbox_env sandbox in the restricted build container" >&2
+    exit 1
+  }
+done
+if grep -Eq 'ac_add_options --disable-(content-)?sandbox' "$template"; then
+  echo "the shipped browser must retain its normal sandbox configuration" >&2
+  exit 1
+fi
 default_options=$(sed -n 's/^build_options_default="\([^"]*\)"/\1/p' "$template")
 case " $default_options " in
   *" pgo "*)
