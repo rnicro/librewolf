@@ -39,9 +39,9 @@ These settings prioritize resource stability on the target; process limits trade
 
 ## Build and release
 
-- Source revision: LibreWolf 158.0.1-2; package revision: 2.
+- Source revision: LibreWolf 158.0.1-2; package revision: 3.
 - CI builds on a hosted runner. Build parallelism follows runner CPU and RAM capacity.
-- CI verifies the source archive SHA-256 on every build, uses versioned source and Void package caches, and persists a bounded local sccache object cache through GitHub Actions cache snapshots. Build parallelism adapts to available runner memory, with up to four jobs when RAM permits. Only `.xbps` package files are published. Release tags include the upstream version and XBPS package revision (for example, `158.0.1-r2`); a tag can be reused only when package inputs are unchanged. The browser build date is derived from the last commit touching `srcpkgs/librewolf`. PGO remains opt-in because profiling has not yet been demonstrated to produce a valid reusable profile.
+- CI verifies the source archive SHA-256 on every build, uses versioned source and Void package caches, and persists a bounded local sccache object cache through GitHub Actions cache snapshots. Build parallelism adapts to available runner memory, with up to four jobs when RAM permits. Only `.xbps` package files are published. Release tags include the upstream version and XBPS package revision (for example, `158.0.1-r3`); a tag can be reused only when package inputs are unchanged. The browser build date is derived from the last commit touching `srcpkgs/librewolf`. PGO remains opt-in because profiling has not yet been demonstrated to produce a valid reusable profile.
 - Build permissions are read-only; publishing runs separately and only for `master`.
 
 ## Key paths
@@ -68,7 +68,7 @@ The sections above are the quick-start summary. This reference records the full 
 | CPU | Intel Core i3-6100U, Skylake, 2 cores / 4 threads |
 | RAM/storage | 4 GB DDR3 / HDD |
 | Display/audio | Native Wayland / ALSA and PulseAudio protocol |
-| Source/package revision | LibreWolf 158.0.1, source revision 2, Void package revision 2 |
+| Source/package revision | LibreWolf 158.0.1, source revision 2, Void package revision 3 |
 
 Priorities are runtime responsiveness on the actual Skylake machine, memory stability, reduced unnecessary HDD writes, useful CI throughput, reuse of expensive build outputs, and a small maintainable patch set. The **build host and runtime target are different machines**: compile and link concurrency should follow the actual GitHub runner's CPU/RAM, not the laptop's four hardware threads.
 

@@ -1,7 +1,7 @@
 # Template file for 'librewolf'
 pkgname=librewolf
 version=158.0.1
-revision=2
+revision=3
 _rev=2
 wrksrc=${pkgname}-${version}-${_rev}
 build_helper="rust"
