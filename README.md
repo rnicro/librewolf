@@ -134,10 +134,10 @@ The workflow:
 2. Frees runner disk space when less than 60 GiB is available, checks out this repository and Void's `void-packages` master, then overlays this package.
 3. Pre-validates the template and LLVM/Rust toolchain match; prepares static XBPS and the runner's user-namespace environment; bootstraps `xbps-src`.
 4. Restores the source, Void binary-package and (only when PGO is requested) profile caches. The Void binary-package cache rotates weekly so it refreshes rather than staying frozen at its first immutable entry.
-5. Creates the cache runtime environment for the chroot; builds with concurrency calculated from runner CPU count and available memory.
-6. Reserves approximately 2 GiB for the OS/linker and budgets around 3 GiB per concurrent worker, then caps workers by visible CPU count.
-7. Generates SHA-256/SHA-512 manifests for package and repository metadata and transfers a short-lived build artifact to publishing.
-8. Publishes only on `refs/heads/master`. It ties the release tag to the build commit, refuses to retarget an existing tag, validates digests for existing asset names, uploads missing matching assets, and marks the release latest.
+5. Restores the local `sccache` directory from an Actions cache snapshot; verified source and dependency archives are handled by separate caches.
+6. Reserves approximately 1.5 GiB for the OS/linker and budgets around 3 GiB per concurrent worker, then caps workers by visible CPU count.
+7. Saves the updated local compiler cache under a new immutable per-run cache key, and transfers a short-lived artifact containing only the generated `.xbps` packages to publishing.
+8. Publishes only on `refs/heads/master`. It ties the release tag to the build commit, refuses to retarget an existing tag when package inputs changed, uploads package archives, and marks the release latest.
 
 The build job is read-only for repository contents; the separate publish job has write permission. The default runner is Ubuntu 24.04 and `LIBREWOLF_RUNNER` can override it. Total workflow timeout is 360 minutes; the package build step is limited to 350 minutes. New commits do not cancel an active expensive build, but replace the queued pending run for that ref. README-only commits do not match the build path filters.
 
@@ -147,14 +147,14 @@ The validator checks shell syntax, package name, version, positive package revis
 
 | Cache | Current key/namespace | Validation and purpose |
 |---|---|---|
-| Source archive | `librewolf-source-v6-<SHA256>` | Re-hash cached file against template checksum; v6 isolates a previously invalid v5 cache entry |
+| Source archive | `librewolf-source-v7-<SHA256>` | Re-hash every restored archive against the template checksum; v7 isolates a stale cache entry that repeatedly failed validation |
 | Experimental PGO | `LIBREWOLF_PGO_CACHE_VERSION=v12` | Manual opt-in only; source digest, recipe, patches, `stab.h`, LLVM 23/Rust/Cargo/WASI/sccache/base-chroot inputs |
 | Void binary dependencies | `void-repocache-v3` | Weekly immutable snapshot; restores the previous v2 cache or the latest matching v3 week, then saves a refreshed snapshot. This updates package downloads without creating a cache for every commit. |
-| Compiler cache | `librewolf-x86_64-musl-skylake-llvm23-v3` | Packaged `rust-sccache`, explicit GHA read/write mode and backend error diagnostics |
+| Compiler cache | `sccache-disk-v1-<OS>-x86_64-musl-skylake-llvm23-<run-id>-<attempt>` | Persists the local `/host/sccache` directory through Actions cache snapshots; unique per-run keys let each build save updated objects, with a 2 GiB local cache cap |
 
-Important compiler-cache settings are `RUSTC_WRAPPER=/usr/bin/sccache`, `SCCACHE_CLIENT_SIDE=false`, `SCCACHE_DIR=/host/sccache`, `SCCACHE_CACHE_SIZE=16G`, `SCCACHE_CACHE_ZSTD_LEVEL=1` and `SCCACHE_IDLE_TIMEOUT=0`. The multi-level chain is `disk,gha` and remote write failures are ignored so a transient cache outage does not fail the package build. The build uses a packaged cache executable because `xbps-src` can clean/reconstruct its chroot, and it explicitly points Firefox configure at `/usr/bin/sccache` because a bare executable name proved unreliable.
+Important compiler-cache settings are `RUSTC_WRAPPER=/usr/bin/sccache`, `SCCACHE_CLIENT_SIDE=false`, `SCCACHE_DIR=/host/sccache`, `SCCACHE_CACHE_SIZE=2G`, `SCCACHE_CACHE_ZSTD_LEVEL=1` and `SCCACHE_IDLE_TIMEOUT=0`. Compiler objects use the local disk backend only. CI restores the cache directory before building and saves a new snapshot after the build; the previous remote GHA backend produced write-side 404 errors and recorded zero cache hits. Cache persistence is now explicit rather than dependent on runtime cache credentials. This should improve subsequent builds, but hit rates must be confirmed from the new run’s `sccache --show-stats` output.
 
-Cache keys are optimizations, never authorities: source is checksum-verified, and PGO output is parsed/validated before use. Bump `LIBREWOLF_PGO_CACHE_VERSION` when workload/schema assumptions change outside the keyed inputs; update `SCCACHE_GHA_VERSION` when the compiler cache namespace/compatibility changes. Release housekeeping should not invalidate otherwise reusable source/compiler/profile data.
+Cache keys are optimizations, never authorities: source is checksum-verified, and PGO output is parsed/validated before use. Bump `LIBREWOLF_PGO_CACHE_VERSION` when workload/schema assumptions change outside the keyed inputs. Release housekeeping should not invalidate otherwise reusable source/compiler/profile data.
 
 ### Active downstream patch inventory
 
@@ -189,7 +189,7 @@ The current recipe also removes `sys/single_threaded.h` from Firefox's generated
 
 Key lessons from failures: don't copy unmanaged tools into an XBPS chroot; use explicit compiler-cache paths; validate package/source metadata before costly builds; re-hash source-cache entries; validate LLVM profiles instead of trusting file existence; make cache keys specific to profile-affecting inputs; don't base CI worker counts on the laptop; don't force LTO partitions that can break sandbox linkage; and remove stale patches when upstream fixes or source layout make them obsolete.
 
-Earlier README revisions contained far more implementation narratives and temporary PGO approaches, reached 1,078 lines, and were deliberately compressed. The current README keeps the technical facts, maintenance rules and historical transitions while identifying superseded behavior as history rather than current practice.
+Earlier README revisions contained far more implementation narratives and temporary PGO approaches, reached 1,078 lines, and were deliberately compressed. The current README keeps the technical facts, maintenance rules and historical transitions while identifying superseded behavior as history rather than current practice. Older history mentioning the GHA-backed compiler cache describes the pre-October 25 setup; the current cache implementation is the local snapshot described above.
 
 ## Source updates and maintenance checklist
 
@@ -198,8 +198,8 @@ Earlier README revisions contained far more implementation narratives and tempor
 3. Keep the `x86_64-musl`/Skylake restriction explicit unless the build is deliberately redesigned for portability.
 4. Keep Clang/LLVM/LLD aligned with Void Rust's LLVM major.
 5. Do not restore global LTO partitioning without fixing the sandbox assembly-linkage problem.
-6. Run CI and inspect checksum verification, validation, compiler output, cache behavior, PGO fallback, package contents and release assets.
-7. Bump `LIBREWOLF_PGO_CACHE_VERSION` when PGO inputs/workload change outside the cache key; update `SCCACHE_GHA_VERSION` if compiler-cache namespace compatibility changes.
+6. Run CI and inspect checksum verification, validation, compiler output, sccache hit/miss counters, cache-save results, PGO fallback, package contents and release assets.
+7. Bump `LIBREWOLF_PGO_CACHE_VERSION` when PGO inputs/workload change outside the cache key; change the local compiler-cache key prefix when compiler/cache compatibility changes.
 
 Routine changes should be committed directly to `master`. Do not create feature branches or pull requests unless explicitly instructed otherwise.
 
