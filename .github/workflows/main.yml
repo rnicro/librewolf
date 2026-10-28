@@ -178,8 +178,8 @@ jobs:
           path: void-packages/hostdir/sources/librewolf-${{ steps.meta.outputs.version }}/${{ steps.meta.outputs.distfile }}
           key: librewolf-source-v7-${{ steps.meta.outputs.sha256 }}
 
-      - name: fetch and verify LibreWolf source
-        timeout-minutes: 20
+      - name: verify cached LibreWolf source
+        id: source-cache-verify
         working-directory: void-packages
         env:
           DISTFILE: ${{ steps.meta.outputs.distfile }}
@@ -187,35 +187,20 @@ jobs:
           SHA256: ${{ steps.meta.outputs.sha256 }}
         run: |
           set -euo pipefail
-          export PATH="/opt/xbps/usr/bin/:$PATH"
-          srcdir="hostdir/sources/librewolf-${VERSION}"
-          distfile="${srcdir}/${DISTFILE}"
-          mkdir -p "$srcdir"
+          distfile="hostdir/sources/librewolf-${VERSION}/${DISTFILE}"
+          cache_valid=false
 
-          source_verified=false
-          if [ "${{ steps.source-cache.outputs.cache-hit }}" = "true" ] && [ -s "$distfile" ]; then
+          if [ -s "$distfile" ]; then
             if printf '%s  %s\n' "$SHA256" "$distfile" | sha256sum --check --status -; then
-              echo "Using SHA-256-verified LibreWolf source cache."
-              source_verified=true
+              cache_valid=true
+              echo "Using SHA-256-verified source cache."
             else
-              echo "Cached source failed SHA-256 verification; refetching." >&2
+              echo "Cached source failed SHA-256 verification; discarding it." >&2
+              rm -f -- "$distfile"
             fi
           fi
 
-          if [ "$source_verified" != "true" ]; then
-            rm -f -- "$distfile"
-            echo "Fetching LibreWolf source through xbps-src..."
-            ./xbps-src -A "$XBPS_TARGET_ARCH" fetch librewolf
-            # xbps-src checks fresh distfiles against the template checksum.
-          fi
-
-      - name: save LibreWolf source
-        if: ${{ steps.source-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        continue-on-error: true
-        with:
-          path: void-packages/hostdir/sources/librewolf-${{ steps.meta.outputs.version }}/${{ steps.meta.outputs.distfile }}
-          key: librewolf-source-v7-${{ steps.meta.outputs.sha256 }}
+          echo "cache_valid=$cache_valid" >> "$GITHUB_OUTPUT"
 
       - name: build package
         timeout-minutes: 350
@@ -252,6 +237,14 @@ jobs:
             echo "LTO-only baseline requested; PGO is disabled for this run."
           fi
           ./xbps-src -A "$XBPS_TARGET_ARCH" "${pgo_options[@]}" pkg -j"$build_jobs" librewolf
+
+      - name: save LibreWolf source
+        if: ${{ always() && !cancelled() && steps.source-cache-verify.outputs.cache_valid != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        continue-on-error: true
+        with:
+          path: void-packages/hostdir/sources/librewolf-${{ steps.meta.outputs.version }}/${{ steps.meta.outputs.distfile }}
+          key: librewolf-source-v7-${{ steps.meta.outputs.sha256 }}
 
       - name: report compiler cache diagnostics
         if: ${{ always() }}
