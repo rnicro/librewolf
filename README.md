@@ -43,7 +43,7 @@ The GitHub Actions workflow builds through Void's `xbps-src` on an Ubuntu runner
 4. Push the changes to `master` and inspect CI validation, checksum verification, compiler-cache statistics, build completion, and the release assets.
 5. Bump `LIBREWOLF_PGO_CACHE_VERSION` in `.github/workflows/main.yml` when profile-relevant inputs change but are not covered by the PGO cache key.
 
-The workflow currently checks out the moving `master` branch of `void-linux/void-packages`, so dependency versions can change between builds. Source integrity is pinned by SHA-256, but this does not make the complete build reproducible.
+The workflow pins `void-linux/void-packages` at a known commit so compiler and package recipes do not drift between runs. Update the `ref` in `.github/workflows/main.yml` deliberately when refreshing the build toolchain; the validator checks that LibreWolf's LLVM major matches Void Rust and WASI SDK. GitHub Actions are also pinned by commit SHA. These pins improve consistency, but the runner image and the `xbps-static` download are still external inputs, so the build is not fully hermetic.
 
 ## Repository layout
 
