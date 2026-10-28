@@ -1,7 +1,7 @@
 # Template file for 'librewolf'
 pkgname=librewolf
 version=159.0
-revision=1
+revision=2
 _rev=1
 wrksrc=${pkgname}-${version}-${_rev}
 build_helper="rust"
@@ -42,10 +42,6 @@ desc_option_pgo="Enable experimental Profile-guided Optimization"
 desc_option_clang="Build with clang"
 desc_option_wasi="Build wasm sandboxed libraries"
 
-_clear_vendor_checksums() {
-	sed -i 's/\("files":{\)[^}]*/\1/' third_party/rust/$1/.cargo-checksum.json
-}
-
 post_extract() {
 	cp "${FILESDIR}/stab.h" toolkit/crashreporter/google-breakpad/src/
 
@@ -55,7 +51,6 @@ post_extract() {
 }
 
 post_patch() {
-	_clear_vendor_checksums audio_thread_priority
 	vsed -e '\;sys/single_threaded.h;d' -i config/system-headers.mozbuild
 }
 
