@@ -33,6 +33,7 @@ The GitHub Actions workflow builds through Void's `xbps-src` on an Ubuntu runner
 - Clang/LLVM/LLD are pinned to major version 23 to match Void Rust's LLVM bitcode. The build uses cross-language full LTO by default.
 - Release CI enables PGO. Profiles are validated before use; failed profiling falls back to an LTO-only build. Source, PGO, Void dependency, and compiler-object caches reduce repeated work. Cache contents are validated rather than trusted blindly.
 - Xvfb and sandbox-disabling environment variables are used only for the temporary instrumented PGO profiling run in CI. They are not configured into the shipped browser, which retains its normal sandbox behavior and native Wayland configuration.
+- The workflow invokes `xbps-src pkg` for the package build. Output such as `Building C object ... compiler-rt ...` comes from the `wasi-sdk` build dependency, whose Void package recipe uses CMake/Ninja; it is not a separate LibreWolf build command. LibreWolf's own recipe delegates to Mozilla's `./mach build` through `xbps-src`.
 - CI checks the source archive SHA-256 before building. Release tags use `<version>-r<package-revision>`; existing tags are not retargeted when package inputs change.
 
 ## Updating LibreWolf
