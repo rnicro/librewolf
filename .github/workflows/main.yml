@@ -295,19 +295,19 @@ jobs:
         working-directory: void-packages/hostdir/binpkgs/
         run: |
           set -euo pipefail
-          compgen -G 'librewolf-*.xbps' >/dev/null || {
+          compgen -G 'librewolf-[0-9]*.xbps' >/dev/null || {
             echo "no LibreWolf XBPS package was produced" >&2
             exit 1
           }
           mkdir -p "$GITHUB_WORKSPACE/release-assets"
-          find . -maxdepth 1 -type f -name 'librewolf-*.xbps' -exec cp -t "$GITHUB_WORKSPACE/release-assets" -- {} +
-          ls -lh "$GITHUB_WORKSPACE"/release-assets/librewolf-*.xbps
+          find . -maxdepth 1 -type f -name 'librewolf-[0-9]*.xbps' -exec cp -t "$GITHUB_WORKSPACE/release-assets" -- {} +
+          ls -lh "$GITHUB_WORKSPACE"/release-assets/librewolf-[0-9]*.xbps
 
       - name: upload release bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: librewolf-packages
-          path: release-assets/librewolf-*.xbps
+          path: release-assets/librewolf-[0-9]*.xbps
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
@@ -378,11 +378,11 @@ jobs:
           set -euo pipefail
 
           # Releases contain package archives only. Replace same-named assets on rebuild.
-          compgen -G 'librewolf-*.xbps' >/dev/null || {
+          compgen -G 'librewolf-[0-9]*.xbps' >/dev/null || {
             echo "no LibreWolf package assets found for release $TAG" >&2
             exit 1
           }
-          gh release upload "$TAG" --clobber ./librewolf-*.xbps
+          gh release upload "$TAG" --clobber ./librewolf-[0-9]*.xbps
 
       - name: mark release latest
         env:
