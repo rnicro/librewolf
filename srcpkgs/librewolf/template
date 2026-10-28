@@ -92,7 +92,6 @@ do_build() {
 		export ASFLAGS="--target=${XBPS_TRIPLET}"
 	fi
 
-	test -x /usr/bin/sccache
 	/usr/bin/sccache --version
 
 	# Fail before configure if bindgen's version-matched libclang is missing.
