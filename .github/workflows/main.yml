@@ -202,7 +202,7 @@ jobs:
 
           echo "cache_valid=$cache_valid" >> "$GITHUB_OUTPUT"
 
-      - name: build package
+      - name: build through xbps-src
         timeout-minutes: 350
         working-directory: void-packages
         env:
