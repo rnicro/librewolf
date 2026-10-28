@@ -1,6 +1,6 @@
 # LibreWolf — Skylake / Void Linux musl
 
-LibreWolf 158.0.1, tuned for an Intel Core i3-6100U (Skylake), 4 GB RAM, HDD, and Void Linux `x86_64-musl`. The binary requires a Skylake-class CPU or newer.
+LibreWolf 159.0, tuned for an Intel Core i3-6100U (Skylake), 4 GB RAM, HDD, and Void Linux `x86_64-musl`. The binary requires a Skylake-class CPU or newer.
 
 ## Native Wayland runtime
 
@@ -39,9 +39,9 @@ These settings prioritize resource stability on the target; process limits trade
 
 ## Build and release
 
-- Source revision: LibreWolf 158.0.1-2; package revision: 3.
+- Source revision: LibreWolf 159.0-1; package revision: 1.
 - CI builds on a hosted runner. Build parallelism follows runner CPU and RAM capacity.
-- CI verifies the source archive SHA-256 on every build, uses versioned source and Void package caches, and persists a bounded local sccache object cache through GitHub Actions cache snapshots. Build concurrency scales with runner CPU/RAM (four jobs on the standard 4-vCPU runner when memory allows; larger configured runners are used automatically). Only `.xbps` package files are published. Release tags include the upstream version and XBPS package revision (for example, `158.0.1-r3`); a tag can be reused only when package inputs are unchanged. The browser build date is derived from the last commit touching `srcpkgs/librewolf`. PGO is enabled for release CI and safely falls back to LTO-only if profile generation fails.
+- CI verifies the source archive SHA-256 on every build, uses versioned source and Void package caches, and persists a bounded local sccache object cache through GitHub Actions cache snapshots. Build concurrency scales with runner CPU/RAM (four jobs on the standard 4-vCPU runner when memory allows; larger configured runners are used automatically). Only `.xbps` package files are published. Release tags include the upstream version and XBPS package revision (for example, `159.0-r1`); a tag can be reused only when package inputs are unchanged. The browser build date is derived from the last commit touching `srcpkgs/librewolf`. PGO is enabled for release CI and safely falls back to LTO-only if profile generation fails.
 - Build permissions are read-only; publishing runs separately and only for `master`.
 
 ## Key paths
@@ -68,7 +68,7 @@ The sections above are the quick-start summary. This reference records the full 
 | CPU | Intel Core i3-6100U, Skylake, 2 cores / 4 threads |
 | RAM/storage | 4 GB DDR3 / HDD |
 | Display/audio | Native Wayland / ALSA and PulseAudio protocol |
-| Source/package revision | LibreWolf 158.0.1, source revision 2, Void package revision 3 |
+| Source/package revision | LibreWolf 159.0, source revision 1, Void package revision 1 |
 
 Priorities are runtime responsiveness on the actual Skylake machine, memory stability, reduced unnecessary HDD writes, useful CI throughput, reuse of expensive build outputs, and a small maintainable patch set. The **build host and runtime target are different machines**: compile and link concurrency should follow the actual GitHub runner's CPU/RAM, not the laptop's four hardware threads.
 
