@@ -42,6 +42,11 @@ desc_option_pgo="Enable experimental Profile-guided Optimization"
 desc_option_clang="Build with clang"
 desc_option_wasi="Build wasm sandboxed libraries"
 
+# Cargo validates vendored crate files; clear this crate's file list for downstream compatibility.
+_clear_vendor_checksums() {
+	sed -i 's/\("files":{\)[^}]*/\1/' third_party/rust/$1/.cargo-checksum.json
+}
+
 post_extract() {
 	cp "${FILESDIR}/stab.h" toolkit/crashreporter/google-breakpad/src/
 
@@ -51,6 +56,7 @@ post_extract() {
 }
 
 post_patch() {
+	_clear_vendor_checksums audio_thread_priority
 	vsed -e '\;sys/single_threaded.h;d' -i config/system-headers.mozbuild
 }
 
