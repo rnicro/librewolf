@@ -100,7 +100,6 @@ jobs:
         id: meta
         run: |
           set -euo pipefail
-          bash -n .github/scripts/validate-template.sh
           bash .github/scripts/validate-template.sh srcpkgs/librewolf/template void-packages/srcpkgs/rust/template void-packages/srcpkgs/wasi-sdk/template
 
       - name: fingerprint PGO build inputs
@@ -193,24 +192,23 @@ jobs:
           distfile="${srcdir}/${DISTFILE}"
           mkdir -p "$srcdir"
 
-          cache_valid=false
+          source_verified=false
           if [ "${{ steps.source-cache.outputs.cache-hit }}" = "true" ] && [ -s "$distfile" ]; then
-            echo "LibreWolf source cache hit; verifying cached archive..."
             if printf '%s  %s\n' "$SHA256" "$distfile" | sha256sum --check --status -; then
-              cache_valid=true
+              echo "Using SHA-256-verified LibreWolf source cache."
+              source_verified=true
             else
               echo "Cached source failed SHA-256 verification; refetching." >&2
             fi
           fi
 
-          if [ "$cache_valid" != "true" ]; then
+          if [ "$source_verified" != "true" ]; then
             rm -f -- "$distfile"
             echo "Fetching LibreWolf source through xbps-src..."
             ./xbps-src -A "$XBPS_TARGET_ARCH" fetch librewolf
+            test -s "$distfile"
+            printf '%s  %s\n' "$SHA256" "$distfile" | sha256sum --check -
           fi
-
-          test -s "$distfile"
-          printf '%s  %s\n' "$SHA256" "$distfile" | sha256sum --check -
 
       - name: save LibreWolf source
         if: ${{ steps.source-cache.outputs.cache-hit != 'true' }}
