@@ -291,22 +291,23 @@ jobs:
           path: void-packages/hostdir/repocache-${{ env.XBPS_TARGET_ARCH }}
           key: void-repocache-v3-${{ env.XBPS_TARGET_ARCH }}-${{ hashFiles('void-packages/xbps-src', 'void-packages/srcpkgs/base-chroot/template') }}-${{ steps.void-cache-epoch.outputs.week }}
 
-      - name: stage XBPS packages only
+      - name: stage LibreWolf package only
         working-directory: void-packages/hostdir/binpkgs/
         run: |
           set -euo pipefail
-          compgen -G '*.xbps' >/dev/null || {
-            echo "no XBPS packages were produced" >&2
+          compgen -G 'librewolf-*.xbps' >/dev/null || {
+            echo "no LibreWolf XBPS package was produced" >&2
             exit 1
           }
           mkdir -p "$GITHUB_WORKSPACE/release-assets"
-          find . -maxdepth 1 -type f -name '*.xbps' -exec cp -t "$GITHUB_WORKSPACE/release-assets" -- {} +
+          find . -maxdepth 1 -type f -name 'librewolf-*.xbps' -exec cp -t "$GITHUB_WORKSPACE/release-assets" -- {} +
+          ls -lh "$GITHUB_WORKSPACE"/release-assets/librewolf-*.xbps
 
       - name: upload release bundle
         uses: actions/upload-artifact@v4
         with:
           name: librewolf-packages
-          path: release-assets/*.xbps
+          path: release-assets/librewolf-*.xbps
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
@@ -377,11 +378,11 @@ jobs:
           set -euo pipefail
 
           # Releases contain package archives only. Replace same-named assets on rebuild.
-          compgen -G '*.xbps' >/dev/null || {
-            echo "no .xbps assets found for release $TAG" >&2
+          compgen -G 'librewolf-*.xbps' >/dev/null || {
+            echo "no LibreWolf package assets found for release $TAG" >&2
             exit 1
           }
-          gh release upload "$TAG" --clobber ./*.xbps
+          gh release upload "$TAG" --clobber ./librewolf-*.xbps
 
       - name: mark release latest
         env:
