@@ -206,8 +206,8 @@ jobs:
             rm -f -- "$distfile"
             echo "Fetching LibreWolf source through xbps-src..."
             ./xbps-src -A "$XBPS_TARGET_ARCH" fetch librewolf
+            # xbps-src checks fresh distfiles against the template checksum.
             test -s "$distfile"
-            printf '%s  %s\n' "$SHA256" "$distfile" | sha256sum --check -
           fi
 
       - name: save LibreWolf source
