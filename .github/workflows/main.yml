@@ -63,7 +63,7 @@ jobs:
           df -h /
 
       - name: checkout librewolf-void
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -82,7 +82,7 @@ jobs:
           echo "Firefox build date epoch: $epoch"
 
       - name: checkout void-packages
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: void-linux/void-packages
           ref: master
@@ -114,7 +114,7 @@ jobs:
       - name: restore LibreWolf PGO profile
         id: pgo-cache
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.pgo }}
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: void-packages/hostdir/pgo-cache
           # PGO validity follows source + downstream patches + this explicit version.
@@ -145,7 +145,7 @@ jobs:
 
       - name: restore Void binary package cache
         id: xbps-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: void-packages/hostdir/repocache-${{ env.XBPS_TARGET_ARCH }}
           key: void-repocache-v3-${{ env.XBPS_TARGET_ARCH }}-${{ hashFiles('void-packages/xbps-src', 'void-packages/srcpkgs/base-chroot/template') }}-${{ steps.void-cache-epoch.outputs.week }}
@@ -163,7 +163,7 @@ jobs:
 
       - name: restore sccache object cache
         id: sccache-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: void-packages/hostdir/sccache
           # A unique key permits new objects to be saved after each build.
@@ -173,7 +173,7 @@ jobs:
 
       - name: restore LibreWolf source
         id: source-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: void-packages/hostdir/sources/librewolf-${{ steps.meta.outputs.version }}/${{ steps.meta.outputs.distfile }}
           key: librewolf-source-v7-${{ steps.meta.outputs.sha256 }}
@@ -213,7 +213,7 @@ jobs:
 
       - name: save LibreWolf source
         if: ${{ steps.source-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         continue-on-error: true
         with:
           path: void-packages/hostdir/sources/librewolf-${{ steps.meta.outputs.version }}/${{ steps.meta.outputs.distfile }}
@@ -269,7 +269,7 @@ jobs:
 
       - name: save sccache object cache
         if: ${{ always() && !cancelled() && steps.sccache-cache.outputs.cache-primary-key != '' }}
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         continue-on-error: true
         with:
           path: void-packages/hostdir/sccache
@@ -277,7 +277,7 @@ jobs:
 
       - name: save LibreWolf PGO profile
         if: ${{ always() && !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.pgo) && steps.pgo-cache.outputs.cache-hit != 'true' && hashFiles('void-packages/hostdir/pgo-cache/merged.profdata') != '' && hashFiles('void-packages/hostdir/pgo-cache/jarlog') != '' }}
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         continue-on-error: true
         with:
           path: void-packages/hostdir/pgo-cache
@@ -285,7 +285,7 @@ jobs:
 
       - name: save Void binary package cache
         if: ${{ always() && !cancelled() && steps.void-cache-epoch.outputs.week != '' && steps.xbps-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         continue-on-error: true
         with:
           path: void-packages/hostdir/repocache-${{ env.XBPS_TARGET_ARCH }}
@@ -304,7 +304,7 @@ jobs:
           ls -lh "$GITHUB_WORKSPACE"/release-assets/librewolf-*.xbps
 
       - name: upload release bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: librewolf-packages
           path: release-assets/librewolf-*.xbps
@@ -320,12 +320,12 @@ jobs:
       contents: write
     steps:
       - name: checkout source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: download release bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: librewolf-packages
           path: binpkgs
