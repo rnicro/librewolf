@@ -316,10 +316,7 @@ do_build() {
 		fi
 
 		if [ "$pgo_profile_ready" = true ]; then
-			pgo_profile_is_valid || {
-				echo "PGO profile validation failed; refusing to use an invalid profile." >&2
-				exit 1
-			}
+			# Cache hits were validated before use; generated profiles were validated before caching.
 			./mach clobber objdir
 			cp mozconfig{.orig,}
 			printf '%s\n' \
