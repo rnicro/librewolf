@@ -1,6 +1,6 @@
 # LibreWolf — Skylake / Void Linux musl
 
-LibreWolf 158.0.1, tuned for an Intel Core i3-6100U (Skylake), 4 GB RAM, HDD, and Void Linux `x86_64-musl`. The binary requires a Skylake-class CPU or newer.
+LibreWolf 159.0, tuned for an Intel Core i3-6100U (Skylake), 4 GB RAM, HDD, and Void Linux `x86_64-musl`. The binary requires a Skylake-class CPU or newer.
 
 ## Native Wayland runtime
 
@@ -39,9 +39,9 @@ These settings prioritize resource stability on the target; process limits trade
 
 ## Build and release
 
-- Source revision: LibreWolf 158.0.1-2; package revision: 3.
+- Source revision: LibreWolf 159.0-1; package revision: 4.
 - CI builds on a hosted runner. Build parallelism follows runner CPU and RAM capacity.
-- CI verifies the source archive SHA-256 on every build, uses versioned source and Void package caches, and persists a bounded local sccache object cache through GitHub Actions cache snapshots. Build concurrency scales with runner CPU/RAM (four jobs on the standard 4-vCPU runner when memory allows; larger configured runners are used automatically). Only `.xbps` package files are published. Release tags include the upstream version and XBPS package revision (for example, `158.0.1-r3`); a tag can be reused only when package inputs are unchanged. The browser build date is derived from the last commit touching `srcpkgs/librewolf`. PGO is enabled for release CI and safely falls back to LTO-only if profile generation fails.
+- CI verifies the source archive SHA-256 on every build, uses versioned source and Void package caches, and persists a bounded local sccache object cache through GitHub Actions cache snapshots. Build concurrency scales with runner CPU/RAM (four jobs on the standard 4-vCPU runner when memory allows; larger configured runners are used automatically). Only `.xbps` package files are published. Release tags include the upstream version and XBPS package revision (for example, `159.0-r4`); a tag can be reused only when package inputs are unchanged. The browser build date is derived from the last commit touching `srcpkgs/librewolf`. PGO is enabled for release CI and safely falls back to LTO-only if profile generation fails.
 - Build permissions are read-only; publishing runs separately and only for `master`.
 
 ## Key paths
@@ -68,7 +68,7 @@ The sections above are the quick-start summary. This reference records the full 
 | CPU | Intel Core i3-6100U, Skylake, 2 cores / 4 threads |
 | RAM/storage | 4 GB DDR3 / HDD |
 | Display/audio | Native Wayland / ALSA and PulseAudio protocol |
-| Source/package revision | LibreWolf 158.0.1, source revision 2, Void package revision 3 |
+| Source/package revision | LibreWolf 159.0, source revision 1, Void package revision 4 |
 
 Priorities are runtime responsiveness on the actual Skylake machine, memory stability, reduced unnecessary HDD writes, useful CI throughput, reuse of expensive build outputs, and a small maintainable patch set. The **build host and runtime target are different machines**: compile and link concurrency should follow the actual GitHub runner's CPU/RAM, not the laptop's four hardware threads.
 
@@ -160,7 +160,6 @@ Cache keys are optimizations, never authorities: source is checksum-verified, an
 
 | File | Reason it exists |
 |---|---|
-| `audio_thread_priority-musl.patch` | Serializes `pthread_t` through `usize` because glibc and musl represent the type differently; fixes both Linux audio-priority implementations. |
 | `firefox-146-musl-linux-sys-prctl-conflict.patch` | Avoids a musl WebRTC conflict between Linux and system `prctl` headers. |
 | `firefox-148-mach-clobber.patch` | Corrects `mozshellutil` lookup in Firefox's build environment dump helper. |
 | `fix-fortify-system-wrappers.patch` | Removes `features.h` from generated system headers for this musl/system-wrapper configuration. |
@@ -187,6 +186,7 @@ The current recipe also removes `sys/single_threaded.h` from Firefox's generated
 | Oct 17 | Pinned Clang/LLVM/LLD to LLVM 23 to match Void Rust, removed forced LTO partitioning, corrected bindgen's versioned `libclang.so` path, and bridged Void's WASI runtime layout to Clang 23. |
 | Oct 23 | Bumped LibreWolf to 158.0.1-2, pinned the source digest, made PGO opt-in, aligned WASI discovery with Void LLVM 23, repaired source-cache invalidation, stabilized build dates, and versioned releases by XBPS revision. |
 | Oct 25 | Enabled PGO for release CI after matching the profile-server crash to Mozilla's sandboxed-container issue; added CI-only sandbox overrides, explicit Rust optimization level 2, a normalized PGO-cache fingerprint, and lower per-site process overhead for the 4 GB target. |
+| Oct 30 | Bumped LibreWolf to 159.0-1 (XBPS revision 4) and removed the obsolete musl audio-thread patch already present in upstream source. |
 
 Key lessons from failures: don't copy unmanaged tools into an XBPS chroot; use explicit compiler-cache paths; validate package/source metadata before costly builds; re-hash source-cache entries; validate LLVM profiles instead of trusting file existence; make cache keys specific to profile-affecting inputs; don't base CI worker counts on the laptop; don't force LTO partitions that can break sandbox linkage; and remove stale patches when upstream fixes or source layout make them obsolete.
 
