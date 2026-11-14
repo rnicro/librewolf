@@ -30,7 +30,7 @@ pgo_gate_count=$(grep -F -o "github.event_name == 'workflow_dispatch' && inputs.
   exit 1
 }
 
-grep -Fq "if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}" "$workflow" || {
+grep -Fq "github.event_name == 'push' && github.ref == 'refs/heads/main'" "$workflow" || {
   echo "release publishing must be restricted to pushes on main" >&2
   exit 1
 }
