@@ -43,5 +43,9 @@ grep -Fq "sha256sum ./*.xbps > SHA256SUMS" "$workflow" || {
   echo "release staging must generate package SHA256SUMS" >&2
   exit 1
 }
+if grep -Eq '^[[:space:]]*uses: actions/[^[:space:]@]+@v[0-9]+' "$workflow"; then
+  echo "GitHub Actions must be pinned to immutable commit SHAs" >&2
+  exit 1
+fi
 
 printf 'validated: %s\n' "$workflow"
