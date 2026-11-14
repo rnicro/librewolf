@@ -1,0 +1,371 @@
+# Template file for 'librewolf'
+pkgname=librewolf
+version=159.0
+revision=4
+_rev=1
+wrksrc=${pkgname}-${version}-${_rev}
+build_helper="rust"
+short_desc="LibreWolf web browser"
+maintainer="index <index@mailbox.org>"
+license="GPL-3.0-only AND LGPL-2.1-only AND LGPL-3.0-only AND MPL-2.0"
+homepage="https://librewolf.dev"
+distfiles="https://librewolf.dev/api/packages/librewolf/generic/librewolf-source/${version}-${_rev}/${pkgname}-${version}-${_rev}.source.tar.gz"
+checksum=c2119c24ffbf22dcc998ac399bd95b97e8fdc785f1e57776847b468f3f9928cb
+
+lib32disabled=yes
+
+# This package is intentionally limited to x86_64-musl and Skylake-class CPUs.
+case "$XBPS_TARGET_MACHINE" in
+	x86_64-musl) ;;
+	*) broken="only supported on x86_64-musl" ;;
+esac
+
+_llvmver=23
+_wasi_llvmver=23
+hostmakedepends="unzip zip pkg-config perl python3 yasm rust
+ cargo rust-sccache llvm${_llvmver} clang${_llvmver} clang${_llvmver}-devel lld${_llvmver} nodejs cbindgen nasm which
+ tar xz $(vopt_if pgo 'xvfb-run dbus mesa-dri vulkan-loader pciutils')
+ $(vopt_if wasi wasi-sdk)"
+makedepends="nss-devel libjpeg-turbo-devel gtk+3-devel
+ pixman-devel libevent-devel libnotify-devel libwebp-devel
+ libXrender-devel libXcomposite-devel libSM-devel libXt-devel rust-std
+ libXdamage-devel freetype-devel $(vopt_if wasi wasi-sdk)
+ $(vopt_if alsa alsa-lib-devel) $(vopt_if dbus dbus-glib-devel)
+ $(vopt_if pulseaudio pulseaudio-devel)"
+depends="nss>=3.129 nspr>=4.39 desktop-file-utils hicolor-icon-theme pciutils libavcodec6"
+
+build_options="alsa dbus pulseaudio lto pgo clang wasi debug"
+build_options_default="alsa dbus pulseaudio lto clang wasi"
+
+desc_option_lto="Enable Link Time Optimization"
+desc_option_pgo="Enable experimental Profile-guided Optimization"
+desc_option_clang="Build with clang"
+desc_option_wasi="Build wasm sandboxed libraries"
+
+post_extract() {
+	cp "${FILESDIR}/stab.h" toolkit/crashreporter/google-breakpad/src/
+
+	# Mozilla API keys (see https://location.services.mozilla.com/api)
+	# This package targets Void Linux only.
+	echo -n "cd894504-7a2a-4263-abff-ff73ee89ffca" > mozilla-api-key
+}
+
+post_patch() {
+	vsed -e '\;sys/single_threaded.h;d' -i config/system-headers.mozbuild
+}
+
+do_build() {
+	export AS="${CC}"
+	# Target-specific build: Intel Skylake (i3-6100U / Core i3-6100-class).
+	# This package is intentionally not portable to pre-Skylake x86_64 CPUs.
+	export CFLAGS="${CFLAGS:-} -O2 -march=skylake"
+	export CXXFLAGS="${CXXFLAGS:-} -O2 -march=skylake"
+	export RUSTFLAGS="${RUSTFLAGS:-} -C target-cpu=skylake"
+	export RUSTC_OPT_LEVEL=2
+	export RUSTC_WRAPPER=/usr/bin/sccache
+	export SCCACHE_CLIENT_SIDE=false
+	export SCCACHE_DIR=/host/sccache
+	export SCCACHE_CACHE_SIZE=2G
+	export SCCACHE_CACHE_ZSTD_LEVEL=1
+	export SCCACHE_IDLE_TIMEOUT=0
+	mkdir -p "$SCCACHE_DIR"
+	unset HOST_CFLAGS
+	unset HOST_CXXFLAGS
+	export LDFLAGS="${LDFLAGS:-} -Wl,-rpath=/usr/lib/librewolf"
+
+	# CI persists this local object cache between runs via actions/cache.
+
+	if [ "$build_option_clang" ]; then
+		export CC=clang
+		export CXX=clang++
+		export AS=clang
+		export AR=llvm-ar
+		export NM=llvm-nm
+		export HOST_CC=clang
+		export HOST_CXX=clang++
+
+		export ASFLAGS="--target=${XBPS_TRIPLET}"
+	fi
+
+	test -x /usr/bin/sccache
+	/usr/bin/sccache --version
+
+	# Fail before configure if bindgen's version-matched libclang is missing.
+	if [ "$build_option_clang" ]; then
+		libclang_path="/usr/lib/llvm/${_llvmver}/lib/libclang.so"
+		if [ ! -r "$libclang_path" ]; then
+			echo "Required libclang is missing: $libclang_path (install clang${_llvmver}-devel)." >&2
+			exit 1
+		fi
+	fi
+
+	# Void's current wasi-compiler-rt package installs into
+	# /usr/lib/clang/<major>/lib. Older packaging used /usr/lib/llvm/<major>/...
+	# Reuse matching target archives when present; otherwise bridge the SDK archive.
+	# Preview 1 and Preview 1 threads may share one builtins archive.
+	prepare_wasi_builtins() {
+		[ -n "$build_option_wasi" ] || return 0
+		local clang_resource_root="/usr/lib/clang/${_llvmver}/lib"
+		local runtime_root target_triple archive target_dir target_archive
+		local -a wasi_runtime_roots=(
+			"/usr/lib/clang/${_wasi_llvmver}/lib"
+			"/usr/lib/llvm/${_wasi_llvmver}/lib/clang/${_wasi_llvmver}/lib"
+		)
+		local -a wasi_targets=(
+			"wasm32-unknown-wasip1"
+			"wasm32-unknown-wasip1-threads"
+		)
+
+		for target_triple in "${wasi_targets[@]}"; do
+			target_dir="${clang_resource_root}/${target_triple}"
+			target_archive="${target_dir}/libclang_rt.builtins.a"
+			[ -s "$target_archive" ] && continue
+
+			archive=""
+			for runtime_root in "${wasi_runtime_roots[@]}"; do
+				[ -d "$runtime_root" ] || continue
+				archive="$(find "$runtime_root" -type f \( -name 'libclang_rt.builtins.a' -o -name 'libclang_rt.builtins-wasm32.a' \) -size +0c -print -quit)"
+				[ -n "$archive" ] && break
+			done
+			if [ -z "$archive" ] || [ ! -s "$archive" ]; then
+				echo "Required WASI compiler-rt archive not found; searched: ${wasi_runtime_roots[*]}" >&2
+				for runtime_root in "${wasi_runtime_roots[@]}"; do
+					[ -d "$runtime_root" ] && find "$runtime_root" -type f -name 'libclang_rt*' -print >&2
+				 done
+				return 1
+			fi
+
+			mkdir -p "$target_dir"
+			ln -sfn "$archive" "$target_archive"
+		done
+		echo "WASI compiler-rt archives verified/prepared for Clang ${_llvmver}."
+	}
+
+	prepare_wasi_builtins || exit 1
+
+	disable_wasi() {
+		if [ "$build_option_wasi" ]; then
+			echo "ac_add_options --with-wasi-sysroot=/usr/share/wasi-sysroot"
+		else
+			echo "ac_add_options --without-wasm-sandboxed-libraries"
+		fi
+	}
+
+	cat <<-! >mozconfig
+	ac_add_options --prefix=/usr
+	ac_add_options --libdir=/usr/lib
+	ac_add_options --host=${XBPS_TRIPLET}
+	ac_add_options --target=${XBPS_TRIPLET}
+	ac_add_options --enable-linker=$(vopt_if clang lld bfd)
+	ac_add_options --disable-bootstrap
+	ac_add_options --with-ccache=/usr/bin/sccache
+	$(vopt_if lto 'ac_add_options --enable-lto=cross,full')
+	$(vopt_if clang "ac_add_options --with-libclang-path=/usr/lib/llvm/${_llvmver}/lib")
+
+	ac_add_options --enable-application=browser
+	ac_add_options --enable-release
+	ac_add_options --enable-hardening
+	ac_add_options --enable-optimize="\${CFLAGS}"
+	ac_add_options --enable-path-remapping=c,rust
+	ac_add_options --enable-packed-relative-relocs
+	ac_add_options --disable-cargo-incremental
+	ac_add_options --disable-tests
+	ac_add_options --disable-crashreporter
+	ac_add_options --disable-updater
+	ac_add_options --disable-install-strip
+	ac_add_options --disable-strip
+	ac_add_options --disable-profiling
+	ac_add_options --disable-jemalloc
+	ac_add_options --disable-elf-hack
+	$(disable_wasi)
+	ac_add_options --with-mozilla-api-keyfile="${wrksrc}/mozilla-api-key"
+	ac_add_options --enable-system-pixman
+	ac_add_options --with-system-ffi
+	ac_add_options --with-system-jpeg
+	ac_add_options --with-system-libevent
+	# ac_add_options --with-system-libvpx
+	ac_add_options --with-system-nspr
+	ac_add_options --with-system-nss
+	ac_add_options --with-system-webp
+	ac_add_options --with-system-zlib
+	# XXX: the system's libpng doesn't have APNG support
+	ac_add_options --without-system-png
+	ac_add_options --with-unsigned-addon-scopes=app,system
+	ac_add_options --allow-addon-sideload
+	ac_add_options $(vopt_enable dbus)
+	ac_add_options $(vopt_enable dbus necko-wifi)
+	ac_add_options --disable-audio-backends
+	ac_add_options $(vopt_enable alsa)
+	ac_add_options $(vopt_enable pulseaudio)
+	ac_add_options --enable-default-toolkit=cairo-gtk3-wayland
+
+	mk_add_options MOZ_OBJDIR="${wrksrc}/obj"
+
+	# LibreWolf
+	MOZ_APP_REMOTINGNAME=librewolf
+	ac_add_options --disable-default-browser-agent
+	ac_add_options --enable-rust-simd
+	ac_add_options RUSTC_OPT_LEVEL=2
+
+	ac_add_options --with-app-name=librewolf
+	ac_add_options --with-branding=browser/branding/librewolf
+	ac_add_options --with-l10n-base=$PWD/lw/l10n
+
+	export MOZ_REQUIRE_SIGNING=
+	export MOZILLA_OFFICIAL=1
+
+	mk_add_options MOZ_CRASHREPORTER=0
+	mk_add_options MOZ_DATA_REPORTING=0
+	mk_add_options MOZ_SERVICES_HEALTHREPORT=0
+	mk_add_options MOZ_TELEMETRY_REPORTING=0
+	!
+
+	if [ -z "$build_option_debug" ]; then
+		echo "ac_add_options --disable-debug-symbols" >>mozconfig
+		echo "ac_add_options --disable-debug" >>mozconfig
+	fi
+
+	if [ -z "${SOURCE_DATE_EPOCH:-}" ] && [ -r /host/source-date-epoch ]; then
+		SOURCE_DATE_EPOCH="$(cat /host/source-date-epoch)"
+		export SOURCE_DATE_EPOCH
+	fi
+	if [[ "${SOURCE_DATE_EPOCH:-}" =~ ^[0-9]+$ ]]; then
+		export MOZ_BUILD_DATE="$(date --date "@${SOURCE_DATE_EPOCH}" "+%Y%m%d%H%M%S")"
+	fi
+
+	export MOZ_MAKE_FLAGS="${makejobs}"
+	export MOZ_NOSPAM=1
+	export MOZBUILD_STATE_PATH="${wrksrc}/mozbuild"
+	export MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=system
+
+	rm -f old-configure
+
+	if [ "$build_option_pgo" ]; then
+		pgo_profile_path=/host/pgo-cache/merged.profdata
+		pgo_jarlog_path=/host/pgo-cache/jarlog
+		cp mozconfig{,.orig}
+
+		pgo_profile_is_valid() {
+			[ -s "$pgo_profile_path" ] &&
+			[ -s "$pgo_jarlog_path" ] &&
+				timeout --foreground 60s llvm-profdata show "$pgo_profile_path" >/dev/null 2>&1
+		}
+
+		pgo_profile_ready=false
+		if pgo_profile_is_valid; then
+			echo "Using verified cached LibreWolf PGO profile."
+			pgo_profile_ready=true
+		else
+			echo "PGO profile is missing or invalid; generating a fresh profile."
+			rm -f -- "$pgo_profile_path" "$pgo_jarlog_path"
+			sed -i '\;ac_add_options --enable-lto=;d' mozconfig
+			echo "ac_add_options --enable-profile-generate=cross" >> mozconfig
+
+			./mach build
+			./mach package
+
+			# Follow Void's Firefox PGO launch model. Xvfb is build-only; the
+			# installed browser remains configured for native Wayland.
+			pgo_runtime_dir="$(mktemp -d "${wrksrc}/pgo-runtime-XXXXXX")"
+			if (
+				trap 'rm -rf -- "$pgo_runtime_dir"' EXIT
+				# These overrides apply only to the throwaway instrumented CI profile run.
+				LLVM_PROFDATA=llvm-profdata \
+				JARLOG_FILE="$PWD/jarlog" \
+				GDK_BACKEND=x11 \
+				LD_LIBRARY_PATH="$PWD/obj/dist/librewolf" \
+				XDG_RUNTIME_DIR="$pgo_runtime_dir" \
+				MOZ_ENABLE_WAYLAND=0 \
+				MOZ_DISABLE_CONTENT_SANDBOX=1 \
+				MOZ_DISABLE_GMP_SANDBOX=1 \
+				MOZ_DISABLE_GPU_SANDBOX=1 \
+				MOZ_DISABLE_RDD_SANDBOX=1 \
+				MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1 \
+				MOZ_DISABLE_UTILITY_SANDBOX=1 \
+				MOZ_DISABLE_VR_SANDBOX=1 \
+				LIBGL_ALWAYS_SOFTWARE=1 \
+					timeout --foreground 30m xvfb-run -a -s "-screen 0 1920x1080x24 -nolisten local" \
+					dbus-run-session -- ./mach python build/pgo/profileserver.py
+			); then
+				pgo_profile_generated=true
+			else
+				pgo_profile_generated=false
+			fi
+			rm -rf -- "$pgo_runtime_dir"
+
+			if [ "$pgo_profile_generated" = true ] &&
+				[ -s merged.profdata ] &&
+				[ -s jarlog ] &&
+				timeout --foreground 60s llvm-profdata show merged.profdata >/dev/null 2>&1; then
+				mkdir -p /host/pgo-cache
+				cp merged.profdata "$pgo_profile_path"
+				cp jarlog "$pgo_jarlog_path"
+				pgo_profile_ready=true
+			else
+				echo "PGO profile generation failed; falling back to a non-PGO LTO build." >&2
+				find obj -type f -name 'profile-run-*.log' -print -exec tail -n 60 {} \; 2>/dev/null || true
+				rm -f -- merged.profdata jarlog "$pgo_profile_path" "$pgo_jarlog_path"
+				cp mozconfig.orig mozconfig
+				./mach clobber objdir
+			fi
+		fi
+
+		if [ "$pgo_profile_ready" = true ]; then
+			pgo_profile_is_valid || {
+				echo "PGO profile validation failed; refusing to use an invalid profile." >&2
+				exit 1
+			}
+			./mach clobber objdir
+			cp mozconfig{.orig,}
+			printf '%s\n' \
+				"ac_add_options --enable-profile-use=cross" \
+				"ac_add_options --with-pgo-profile-path=${pgo_profile_path@Q}" \
+				"ac_add_options --with-pgo-jarlog=${pgo_jarlog_path@Q}" \
+				>>mozconfig
+		fi
+	fi
+
+	if [ "$build_option_clang" ] && [ "$build_option_lto" ]; then
+		# Void exposes makejobs as -jN; LLD requires a numeric worker count.
+		if [[ "${makejobs:-}" =~ -j[[:space:]]*([1-9][0-9]*) ]]; then
+			lto_jobs="${BASH_REMATCH[1]}"
+		else
+			lto_jobs="$(nproc)"
+		fi
+		echo "LLD LTO parallelism: ${lto_jobs} workers."
+		# Keep linker threading, but leave LTO partitioning at LLD's default (one partition).
+		# Mozilla's Linux sandbox embeds SyscallAsm in file-scope assembly; forcing
+		# multiple LTO partitions can split that symbol from its C++ callers.
+		export LDFLAGS+=" -Wl,--threads=${lto_jobs} -Wl,--lto-O2"
+	fi
+
+	./mach build
+}
+
+post_build() {
+	/usr/bin/sccache --show-stats || true
+	if [ -s /host/sccache-error.log ]; then
+		echo "sccache backend diagnostics (last 100 lines):" >&2
+		tail -n 100 /host/sccache-error.log >&2 || true
+	fi
+}
+
+do_install() {
+	export MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=system
+	export MOZBUILD_STATE_PATH="${wrksrc}/mozbuild"
+	DESTDIR="$DESTDIR" ./mach install
+
+	vinstall ${FILESDIR}/vendor.js 644 usr/lib/librewolf/browser/defaults/preferences
+	vinstall ${FILESDIR}/librewolf.desktop 644 /usr/share/applications/
+
+	for i in 16x16 32x32 48x48 64x64 128x128; do
+		vinstall ${wrksrc}/browser/branding/librewolf/default${i%x*}.png 644 \
+			usr/share/icons/hicolor/${i}/apps librewolf.png
+	done
+
+	rm -rf ${DESTDIR}/usr/{include,lib/firefox-devel,share/idl}
+
+	ln -sf librewolf ${DESTDIR}/usr/lib/librewolf/librewolf-bin
+
+	ln -sf librewolf ${DESTDIR}/usr/bin/librewolf-wayland
+}

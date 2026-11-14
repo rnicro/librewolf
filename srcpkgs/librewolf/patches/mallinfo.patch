@@ -1,0 +1,20 @@
+--- a/xpcom/base/nsMemoryReporterManager.cpp
++++ b/xpcom/base/nsMemoryReporterManager.cpp
+@@ -152,7 +152,8 @@
+   *aN = int64_t(privateClean + privateDirty) * 1024;
+   return NS_OK;
+ }
+ 
++#ifdef __GLIBC__
+ #  ifdef HAVE_MALLINFO
+ #    define HAVE_SYSTEM_HEAP_REPORTER 1
+ [[nodiscard]] static nsresult SystemHeapSize(int64_t* aSizeOut) {
+@@ -171,6 +172,7 @@
+   *aSizeOut = size_t(info.hblkhd) + size_t(info.uordblks);
+   return NS_OK;
+ }
+ #  endif
++#endif // __GLIBC__
+ 
+ #elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || \
+     defined(__OpenBSD__) || defined(__FreeBSD_kernel__)

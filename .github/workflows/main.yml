@@ -1,0 +1,392 @@
+name: build
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - srcpkgs/librewolf/**
+      - .github/workflows/main.yml
+      - .github/scripts/**
+  workflow_dispatch:
+    inputs:
+      pgo:
+        description: "Enable PGO for runtime optimization; disable for an LTO-only baseline"
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  group: librewolf-${{ github.ref }}
+  # Finish the active expensive build; newer pushes replace the single pending run.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      version: ${{ steps.meta.outputs.version }}
+      rev: ${{ steps.meta.outputs.rev }}
+      package_revision: ${{ steps.meta.outputs.package_revision }}
+    runs-on: ${{ vars.LIBREWOLF_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 360
+    env:
+      XBPS_TARGET_ARCH: x86_64-musl
+      LIBREWOLF_PGO_CACHE_VERSION: "v13"
+    steps:
+      - name: free space
+        run: |
+          set -euo pipefail
+          available_kib=$(df --output=avail -k / | tail -1 | tr -d " ")
+          if [ "$available_kib" -lt $((60 * 1024 * 1024)) ]; then
+            echo "Less than 60 GiB available; reclaiming runner disk space..."
+            sudo rm -rf -- \
+              /usr/share/dotnet \
+              /usr/share/swift \
+              /usr/local/lib/android \
+              /opt/ghc \
+              /usr/local/.ghcup \
+              /usr/local/share/boost \
+              /usr/local/graalvm \
+              /usr/local/share/powershell \
+              /usr/local/share/chromium \
+              /usr/local/lib/node_modules
+            if command -v docker >/dev/null 2>&1; then
+              sudo docker image prune --all --force
+            fi
+          else
+            echo "Skipping runner cleanup; sufficient free space is already available."
+          fi
+          df -h /
+
+      - name: checkout librewolf-void
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: derive reproducible build epoch
+        id: build-epoch
+        run: |
+          set -euo pipefail
+          epoch="$(git log -1 --format=%ct -- srcpkgs/librewolf)"
+          [[ "$epoch" =~ ^[0-9]+$ ]] || {
+            echo "could not derive a stable build epoch from package inputs" >&2
+            exit 1
+          }
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_DATE_EPOCH=$epoch" >> "$GITHUB_ENV"
+          echo "Firefox build date epoch: $epoch"
+
+      - name: checkout void-packages
+        uses: actions/checkout@v7
+        with:
+          repository: void-linux/void-packages
+          ref: master
+          path: void-packages
+          persist-credentials: false
+
+      - name: overlay LibreWolf package into void-packages
+        run: |
+          set -euo pipefail
+          rm -rf void-packages/srcpkgs/librewolf
+          cp -a srcpkgs/librewolf void-packages/srcpkgs/librewolf
+
+      - name: validate and prepare package metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          bash -n .github/scripts/validate-template.sh
+          bash .github/scripts/validate-template.sh srcpkgs/librewolf/template void-packages/srcpkgs/rust/template void-packages/srcpkgs/wasi-sdk/template
+
+      - name: fingerprint PGO build inputs
+        id: pgo-key
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.pgo }}
+        run: |
+          set -euo pipefail
+          # Packaging-only revision bumps do not change the generated profile.
+          template_hash="$(sed '/^revision=/d' srcpkgs/librewolf/template | sha256sum | awk '{print $1}')"
+          echo "template_hash=$template_hash" >> "$GITHUB_OUTPUT"
+
+      - name: restore LibreWolf PGO profile
+        id: pgo-cache
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.pgo }}
+        uses: actions/cache/restore@v6
+        with:
+          path: void-packages/hostdir/pgo-cache
+          # PGO validity follows source + downstream patches + this explicit version.
+          # Bump LIBREWOLF_PGO_CACHE_VERSION when profile-relevant build/workload inputs change.
+          key: librewolf-pgo-${{ env.LIBREWOLF_PGO_CACHE_VERSION }}-${{ steps.meta.outputs.sha256 }}-${{ steps.pgo-key.outputs.template_hash }}-${{ hashFiles('srcpkgs/librewolf/patches/**', 'srcpkgs/librewolf/files/stab.h', 'void-packages/srcpkgs/llvm23/template', 'void-packages/srcpkgs/rust/template', 'void-packages/srcpkgs/cargo/template', 'void-packages/srcpkgs/wasi-sdk/template', 'void-packages/srcpkgs/rust-sccache/template', 'void-packages/srcpkgs/base-chroot/template') }}
+
+      - name: prepare xbps-static
+        run: |
+          set -euo pipefail
+          mkdir -p /opt/xbps
+          curl --fail --location --retry 5 --retry-all-errors \
+            --connect-timeout 30 --max-time 300 \
+            --output xbps-static-latest.x86_64-musl.tar.xz \
+            https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz
+          tar -xJf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps
+          rm -f xbps-static-latest.x86_64-musl.tar.xz
+
+      - name: allow xbps user namespaces
+        run: |
+          set -euo pipefail
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # GitHub cache entries are immutable; rotate weekly so newer Void packages
+      # are captured instead of repeatedly restoring a stale dependency snapshot.
+      - name: prepare Void binary package cache epoch
+        id: void-cache-epoch
+        run: echo "week=$(date -u +'%G-W%V')" >> "$GITHUB_OUTPUT"
+
+      - name: restore Void binary package cache
+        id: xbps-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: void-packages/hostdir/repocache-${{ env.XBPS_TARGET_ARCH }}
+          key: void-repocache-v3-${{ env.XBPS_TARGET_ARCH }}-${{ hashFiles('void-packages/xbps-src', 'void-packages/srcpkgs/base-chroot/template') }}-${{ steps.void-cache-epoch.outputs.week }}
+          restore-keys: |
+            void-repocache-v3-${{ env.XBPS_TARGET_ARCH }}-${{ hashFiles('void-packages/xbps-src', 'void-packages/srcpkgs/base-chroot/template') }}-
+            void-repocache-v2-${{ env.XBPS_TARGET_ARCH }}-${{ hashFiles('void-packages/xbps-src', 'void-packages/srcpkgs/base-chroot/template') }}
+
+      - name: bootstrap xbps-src
+        timeout-minutes: 15
+        working-directory: void-packages
+        run: |
+          set -euo pipefail
+          export PATH="/opt/xbps/usr/bin/:$PATH"
+          ./xbps-src -A "$XBPS_TARGET_ARCH" binary-bootstrap
+
+      - name: restore sccache object cache
+        id: sccache-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: void-packages/hostdir/sccache
+          # A unique key permits new objects to be saved after each build.
+          key: sccache-disk-v1-${{ runner.os }}-${{ env.XBPS_TARGET_ARCH }}-skylake-llvm23-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            sccache-disk-v1-${{ runner.os }}-${{ env.XBPS_TARGET_ARCH }}-skylake-llvm23-
+
+      - name: restore LibreWolf source
+        id: source-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: void-packages/hostdir/sources/librewolf-${{ steps.meta.outputs.version }}/${{ steps.meta.outputs.distfile }}
+          key: librewolf-source-v7-${{ steps.meta.outputs.sha256 }}
+
+      - name: fetch and verify LibreWolf source
+        timeout-minutes: 20
+        working-directory: void-packages
+        env:
+          DISTFILE: ${{ steps.meta.outputs.distfile }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA256: ${{ steps.meta.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          export PATH="/opt/xbps/usr/bin/:$PATH"
+          srcdir="hostdir/sources/librewolf-${VERSION}"
+          distfile="${srcdir}/${DISTFILE}"
+          mkdir -p "$srcdir"
+
+          cache_valid=false
+          if [ "${{ steps.source-cache.outputs.cache-hit }}" = "true" ] && [ -s "$distfile" ]; then
+            echo "LibreWolf source cache hit; verifying cached archive..."
+            if printf '%s  %s\n' "$SHA256" "$distfile" | sha256sum --check --status -; then
+              cache_valid=true
+            else
+              echo "Cached source failed SHA-256 verification; refetching." >&2
+            fi
+          fi
+
+          if [ "$cache_valid" != "true" ]; then
+            rm -f -- "$distfile"
+            echo "Fetching LibreWolf source through xbps-src..."
+            ./xbps-src -A "$XBPS_TARGET_ARCH" fetch librewolf
+          fi
+
+          test -s "$distfile"
+          printf '%s  %s\n' "$SHA256" "$distfile" | sha256sum --check -
+
+      - name: save LibreWolf source
+        if: ${{ steps.source-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        continue-on-error: true
+        with:
+          path: void-packages/hostdir/sources/librewolf-${{ steps.meta.outputs.version }}/${{ steps.meta.outputs.distfile }}
+          key: librewolf-source-v7-${{ steps.meta.outputs.sha256 }}
+
+      - name: build package
+        timeout-minutes: 350
+        working-directory: void-packages
+        env:
+          PGO_BUILD: ${{ github.event_name != 'workflow_dispatch' || inputs.pgo }}
+        run: |
+          set -euo pipefail
+          export PATH="/opt/xbps/usr/bin/:$PATH"
+          printf '%s\n' "${SOURCE_DATE_EPOCH:?missing reproducible build epoch}" > hostdir/source-date-epoch
+          chmod 644 hostdir/source-date-epoch
+          rm -f hostdir/sccache-error.log
+
+          # Reserve 1.5 GiB for the OS/linker and budget about 3 GiB per worker.
+          cpu_jobs="$(nproc)"
+          available_kib="$(awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo)"
+          reserved_kib=$((1536 * 1024))
+          per_job_kib=$((3 * 1024 * 1024))
+          if [ "$available_kib" -gt "$reserved_kib" ]; then
+            memory_jobs=$(((available_kib - reserved_kib) / per_job_kib))
+          else
+            memory_jobs=1
+          fi
+          [ "$memory_jobs" -ge 1 ] || memory_jobs=1
+          build_jobs="$cpu_jobs"
+          [ "$memory_jobs" -ge "$build_jobs" ] || build_jobs="$memory_jobs"
+
+          echo "Build parallelism: $build_jobs jobs ($cpu_jobs CPUs, $((available_kib / 1024)) MiB available RAM)."
+          pgo_options=()
+          if [ "${PGO_BUILD:-false}" = "true" ]; then
+            pgo_options=(-o pgo)
+            echo "PGO enabled: release build or explicit manual opt-in."
+          else
+            echo "LTO-only baseline requested; PGO is disabled for this run."
+          fi
+          ./xbps-src -A "$XBPS_TARGET_ARCH" "${pgo_options[@]}" pkg -j"$build_jobs" librewolf
+
+      - name: report compiler cache diagnostics
+        if: ${{ always() }}
+        working-directory: void-packages
+        run: |
+          set -euo pipefail
+          if [ -s hostdir/sccache-error.log ]; then
+            echo "sccache backend diagnostics:"
+            tail -n 100 hostdir/sccache-error.log
+          else
+            echo "No sccache backend errors were logged."
+          fi
+
+      - name: save sccache object cache
+        if: ${{ always() && !cancelled() && steps.sccache-cache.outputs.cache-primary-key != '' }}
+        uses: actions/cache/save@v6
+        continue-on-error: true
+        with:
+          path: void-packages/hostdir/sccache
+          key: ${{ steps.sccache-cache.outputs.cache-primary-key }}
+
+      - name: save LibreWolf PGO profile
+        if: ${{ always() && !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.pgo) && steps.pgo-cache.outputs.cache-hit != 'true' && hashFiles('void-packages/hostdir/pgo-cache/merged.profdata') != '' && hashFiles('void-packages/hostdir/pgo-cache/jarlog') != '' }}
+        uses: actions/cache/save@v6
+        continue-on-error: true
+        with:
+          path: void-packages/hostdir/pgo-cache
+          key: librewolf-pgo-${{ env.LIBREWOLF_PGO_CACHE_VERSION }}-${{ steps.meta.outputs.sha256 }}-${{ steps.pgo-key.outputs.template_hash }}-${{ hashFiles('srcpkgs/librewolf/patches/**', 'srcpkgs/librewolf/files/stab.h', 'void-packages/srcpkgs/llvm23/template', 'void-packages/srcpkgs/rust/template', 'void-packages/srcpkgs/cargo/template', 'void-packages/srcpkgs/wasi-sdk/template', 'void-packages/srcpkgs/rust-sccache/template', 'void-packages/srcpkgs/base-chroot/template') }}
+
+      - name: save Void binary package cache
+        if: ${{ always() && !cancelled() && steps.void-cache-epoch.outputs.week != '' && steps.xbps-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        continue-on-error: true
+        with:
+          path: void-packages/hostdir/repocache-${{ env.XBPS_TARGET_ARCH }}
+          key: void-repocache-v3-${{ env.XBPS_TARGET_ARCH }}-${{ hashFiles('void-packages/xbps-src', 'void-packages/srcpkgs/base-chroot/template') }}-${{ steps.void-cache-epoch.outputs.week }}
+
+      - name: stage XBPS packages only
+        working-directory: void-packages/hostdir/binpkgs/
+        run: |
+          set -euo pipefail
+          compgen -G '*.xbps' >/dev/null || {
+            echo "no XBPS packages were produced" >&2
+            exit 1
+          }
+          mkdir -p "$GITHUB_WORKSPACE/release-assets"
+          find . -maxdepth 1 -type f -name '*.xbps' -exec cp -t "$GITHUB_WORKSPACE/release-assets" -- {} +
+
+      - name: upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: librewolf-packages
+          path: release-assets/*.xbps
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    if: ${{ github.ref == 'refs/heads/master' }}
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: checkout source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: librewolf-packages
+          path: binpkgs
+
+      - name: publish release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.release_tag }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+
+          # Tags remain immutable. Reuse an existing tag only when all package inputs match;
+          # changes to the recipe, patches or preferences require a package revision bump.
+          if existing_tag_sha="$(git ls-remote --exit-code origin "refs/tags/$TAG" | awk 'NR == 1 {print $1}')"; then
+            git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+            if git diff --quiet "$TAG" "$EXPECTED_SHA" -- srcpkgs/librewolf; then
+              echo "Reusing immutable tag $TAG; package inputs are unchanged."
+            else
+              echo "Refusing to reuse $TAG because srcpkgs/librewolf changed; increment the package revision." >&2
+              exit 1
+            fi
+          else
+            git push origin "$EXPECTED_SHA:refs/tags/$TAG"
+          fi
+
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.release_tag }}
+          VERSION: ${{ needs.build.outputs.version }}
+          REV: ${{ needs.build.outputs.rev }}
+          PKG_REV: ${{ needs.build.outputs.package_revision }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" >/dev/null 2>&1 && exit 0
+          gh release create "$TAG" \
+            --title "$VERSION (package revision $PKG_REV)" \
+            --notes "https://librewolf.dev/librewolf/source/releases/tag/${VERSION}-${REV}" \
+            --latest=false
+
+      - name: upload release assets
+        working-directory: binpkgs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          # Releases contain package archives only. Replace same-named assets on rebuild.
+          compgen -G '*.xbps' >/dev/null || {
+            echo "no .xbps assets found for release $TAG" >&2
+            exit 1
+          }
+          gh release upload "$TAG" --clobber ./*.xbps
+
+      - name: mark release latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release edit "${{ needs.build.outputs.release_tag }}" --latest
