@@ -10,12 +10,15 @@ workflow=${1:?workflow path required}
 awk '
   /^  push:/ { in_push = 1 }
   /^  workflow_dispatch:/ { in_push = 0 }
-  in_push && /^    tags:/ { saw_tags = 1 }
-  in_push && /^      - '\''\*-r\*'\''$/ { saw_release_tag_pattern = 1 }
-  in_push && /^    branches:/ { saw_branches = 1 }
-  END { exit !(saw_tags && saw_release_tag_pattern && !saw_branches) }
+  in_push && /^    tags:$/ { saw_tags = 1 }
+  in_push && /^    branches:$/ { saw_branches = 1 }
+  END { exit !(saw_tags && !saw_branches) }
 ' "$workflow" || {
-  echo "automatic builds must be restricted to version/revision tag pushes, not branch pushes" >&2
+  echo "automatic builds must be restricted to tag pushes, not branch pushes" >&2
+  exit 1
+}
+grep -Fq "      - '*-r*'" "$workflow" || {
+  echo "automatic builds must accept only version/revision release-tag patterns" >&2
   exit 1
 }
 
@@ -47,7 +50,7 @@ sign_line=$(grep -n 'name: sign XBPS repository' "$workflow" | cut -d: -f1)
   exit 1
 }
 
-build_section=${workflow%%  publish:*}
+build_section=$(sed '/^  publish:/,$d' "$workflow")
 if printf '%s\n' "$build_section" | grep -Eq 'secrets\.(PRIV_KEY|SIGN_PASS)'; then
   echo "private signing credentials must not be exposed to the build job" >&2
   exit 1
