@@ -1,8 +1,29 @@
-# LibreWolf for Void Linux (musl)
+# LibreWolf XBPS Repository for Void Linux (x86_64-musl)
 
 A custom [LibreWolf](https://librewolf.dev/librewolf/source/releases) package profile for **Void Linux** `x86_64-musl`, tuned primarily for Intel Skylake-class CPUs and systems with limited memory or slow storage.
 
 Inspired by [index-0/librewolf-void](https://github.com/index-0/librewolf-void).
+
+## Install from the XBPS repository
+
+This repository publishes a LibreWolf package for **Void Linux x86_64-musl**.
+
+Add the repository for automatic package updates:
+
+```sh
+printf '%s\\n' 'repository=https://github.com/rnicro/librewolf/releases/latest/download' \
+  | sudo tee /etc/xbps.d/20-librewolf.conf
+sudo xbps-install -S
+sudo xbps-install librewolf
+```
+
+To install from one specific release without configuring a persistent repository:
+
+```sh
+sudo xbps-install -R https://github.com/rnicro/librewolf/releases/download/<tag> librewolf
+```
+
+The release contains the XBPS package, architecture-specific repository index, and a `SHA256SUMS` manifest. Configure the GitHub Actions secret `PRIV_KEY`, optional passphrase secret `SIGN_PASS`, and Actions variable `SIGNEDBY` to sign the repository index and package archives. Without those signing settings, the workflow publishes an unsigned index; checksums detect accidental corruption but do not authenticate the publisher.
 
 ## Target and compatibility
 
@@ -51,9 +72,9 @@ These are workload-specific trade-offs, not benchmark-proven improvements. Measu
 
 ## Build and release workflow
 
-Automatic pushes to `main` build and publish the LTO-only package. PGO is available only through a manual dispatch with the PGO input enabled; manual runs do not publish releases.
+Automatic pushes to `main` build and publish the LTO-only `x86_64-musl` package. PGO is available only through a manual dispatch with the PGO input enabled; manual runs do not publish releases.
 
-The workflow verifies the upstream source archive with the package SHA-256, validates template and workflow invariants, budgets parallel jobs using available memory, stages only LibreWolf packages, and publishes a `SHA256SUMS` manifest.
+The workflow verifies the upstream source archive with the package SHA-256, validates template and workflow invariants, budgets parallel jobs using available memory, creates the XBPS repository index, and publishes package archives, repository metadata, and a `SHA256SUMS` manifest. XBPS signatures are added when the signing secret and variable described above are configured.
 
 Build reproducibility is improved with `SOURCE_DATE_EPOCH`, but full reproducibility is not guaranteed while the Void package tree and host build tools are fetched from moving upstream references.
 
