@@ -1,0 +1,130 @@
+:root {
+	--uc-control-size: var(--urlbar-height);
+	--uc-control-inset: var(--urlbar-padding-block);
+	--uc-toolbar-edge-padding: calc(var(--uc-control-inset) - var(--toolbarbutton-padding-outer));
+}
+
+@media (width <= 900px) {
+	:root {
+		--toolbarbutton-padding-outer: 2px !important;
+	}
+}
+
+#navigator-toolbox {
+	/* Strip CSD window buttons & drag spacers for dwl. */
+	.titlebar-spacer,
+	.titlebar-buttonbox-container {
+		display: none !important;
+	}
+
+	> :is(#nav-bar, #TabsToolbar) {
+		--toolbarbutton-padding-inner: calc((var(--uc-control-size) - 16px) / 2) !important;
+	}
+
+	> #nav-bar {
+		--toolbar-padding-inline: var(--toolbarbutton-padding-outer);
+		--toolbar-start-edge-padding: var(--toolbarbutton-padding-outer) !important;
+		--toolbar-end-edge-padding: var(--toolbarbutton-padding-outer) !important;
+		padding-inline: var(--uc-toolbar-edge-padding) !important;
+
+		.unified-extensions-item {
+			margin-inline: 0 !important;
+		}
+	}
+}
+
+#navigator-toolbox:not([tabs-hidden]) {
+	--tab-min-height: var(--uc-control-size) !important;
+
+	display: flex;
+	flex-flow: row wrap;
+	background-color: var(--toolbox-background-color) !important;
+
+	> :is(#nav-bar, #TabsToolbar) {
+		background: transparent !important;
+		border-top: none !important;
+		box-shadow: none !important;
+	}
+
+	> :is(#toolbar-menubar, #PersonalToolbar, #notifications-toolbar) {
+		flex: 0 0 100% !important;
+	}
+
+	> #notifications-toolbar {
+		order: 99 !important;
+	}
+
+	> #nav-bar {
+		flex: 1 1 100% !important;
+		min-width: 0 !important;
+	}
+
+	> #TabsToolbar {
+		flex: 0 0 100% !important;
+
+		#TabsToolbar-customization-target {
+			padding-inline: var(--uc-toolbar-edge-padding) !important;
+		}
+	}
+
+	#tabbrowser-tabs {
+		min-height: 0 !important;
+	}
+}
+
+@media (width > 900px) {
+	:root:not([customizing]) #navigator-toolbox:not([tabs-hidden]) {
+		position: relative;
+
+		> #nav-bar {
+			order: -1 !important;
+
+			#urlbar-container {
+				flex: 0 1 min(350px, 32vw) !important;
+				min-width: 0 !important;
+				width: min(350px, 32vw) !important;
+				margin-inline-end: auto !important;
+				anchor-name: --uc-urlbar !important;
+			}
+		}
+
+		#nav-bar-customization-target
+			> #urlbar-container
+			~ :not([hidden]):not(#urlbar-container ~ :not([hidden]) ~ *) {
+			anchor-name: --uc-navbar-trailing !important;
+		}
+
+		> #nav-bar > #PanelUI-button {
+			anchor-name: --uc-navbar-end !important;
+		}
+
+		> #TabsToolbar {
+			position: absolute !important;
+			position-anchor: --uc-urlbar !important;
+			top: anchor(top) !important;
+			bottom: anchor(bottom) !important;
+			left: calc(anchor(right) + var(--urlbar-margin-inline)) !important;
+			right: max(anchor(--uc-navbar-trailing left, 0px), anchor(--uc-navbar-end left, 0px)) !important;
+			--toolbar-edge-padding: 0px !important;
+
+			#TabsToolbar-customization-target {
+				align-self: center !important;
+				padding-inline: 0 !important;
+			}
+		}
+	}
+}
+
+:root[privatebrowsingmode="temporary"]:not([customizing]) #navigator-toolbox:not([tabs-hidden]) {
+	> #TabsToolbar > :is(.private-browsing-indicator-with-label, .private-browsing-indicator-button) {
+		display: none !important;
+	}
+
+	> #nav-bar > #PanelUI-button {
+		order: 1 !important;
+	}
+
+	> #nav-bar > .private-browsing-indicator-button {
+		display: flex !important;
+	}
+}
