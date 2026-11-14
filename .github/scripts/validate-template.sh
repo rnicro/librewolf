@@ -209,6 +209,12 @@ sandbox_patch="$package_dir/patches/sandbox-sched_setscheduler.patch"
   echo "musl scheduler sandbox patch is missing" >&2
   exit 1
 }
+for patch_file in "$package_dir"/patches/*.patch; do
+  git apply --numstat "$patch_file" >/dev/null || {
+    echo "invalid unified diff or hunk counts in $patch_file" >&2
+    exit 1
+  }
+done
 if grep -Fq 'location.services.mozilla.com' "$vendor_js" || grep -Fq 'MOZILLA_API_KEY' "$template"; then
   echo "retired Mozilla Location Service configuration must not be shipped" >&2
   exit 1
