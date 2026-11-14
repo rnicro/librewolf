@@ -228,6 +228,10 @@ if grep -Fq '+        return Allow();' "$sandbox_patch"; then
   echo "musl sched_setscheduler must not be unconditionally allowed" >&2
   exit 1
 fi
+if [ -e "$package_dir/patches/parakeet-missing-cstdint.patch" ]; then
+  echo "obsolete parakeet cstdint patch must not be shipped: Firefox 160 already includes this header" >&2
+  exit 1
+fi
 grep -Fq 'if ./mach build && ./mach package; then' "$template" || {
   echo "instrumented PGO build/package failures must fall back to an LTO-only build" >&2
   exit 1

@@ -38,6 +38,7 @@ These are workload-specific trade-offs, not benchmark-proven improvements. Measu
 
 - **PGO:** Experimental. Automatic release builds use the LTO-only baseline. A manual GitHub Actions dispatch can opt in to PGO; that run creates an artifact but does not publish a release.
 - **WASI integration:** Enabled by default and tied to the pinned LLVM 23 / WASI SDK toolchain. Revalidate it when Void updates Rust, LLVM, or wasi-sdk.
+- Downstream patches are kept only while needed. The old Parakeet `<cstdint>` patch was removed because Firefox 160 already includes that header.
 - **Tab unloading:** Firefox's built-in memory-pressure feature, not a project-specific experimental feature. It may reload inactive tabs after memory pressure.
 
 ## Security and privacy notes
