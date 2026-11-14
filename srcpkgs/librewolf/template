@@ -366,6 +366,8 @@ do_install() {
 	DESTDIR="$DESTDIR" ./mach install
 
 	vinstall ${FILESDIR}/vendor.js 644 usr/lib/librewolf/browser/defaults/preferences
+	# Install the primary userChrome stylesheet into the default profile for new profiles.
+	vinstall ${FILESDIR}/userChrome.css 644 usr/lib/librewolf/browser/defaults/profile/chrome
 	vinstall ${FILESDIR}/librewolf.desktop 644 /usr/share/applications/
 
 	for i in 16x16 32x32 48x48 64x64 128x128; do
