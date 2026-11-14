@@ -1,6 +1,6 @@
 # LibreWolf for Void Linux (musl)
 
-A custom [LibreWolf](https://librewolf.dev/) build profile for **Void Linux** `x86_64-musl`, optimized primarily for Intel Skylake processor and slow systems.
+A custom [LibreWolf](https://librewolf.dev/librewolf/source/releases) build profile for **Void Linux** `x86_64-musl`, optimized primarily for Intel Skylake processor and slow systems.
 
 Inspired by [index-0/librewolf-void](https://github.com/index-0/librewolf-void).
 
