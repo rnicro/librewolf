@@ -293,20 +293,50 @@ jobs:
           path: void-packages/hostdir/repocache-${{ env.XBPS_TARGET_ARCH }}
           key: void-repocache-v3-${{ env.XBPS_TARGET_ARCH }}-${{ hashFiles('void-packages/xbps-src', 'void-packages/srcpkgs/base-chroot/template') }}-${{ steps.void-cache-epoch.outputs.week }}
 
-      - name: stage LibreWolf package and checksums
+      - name: stage LibreWolf XBPS repository
         working-directory: void-packages/hostdir/binpkgs/
+        env:
+          PRIV_KEY: ${{ secrets.PRIV_KEY }}
+          SIGN_PASS: ${{ secrets.SIGN_PASS }}
+          SIGNEDBY: ${{ vars.SIGNEDBY }}
         run: |
           set -euo pipefail
+          export PATH="/opt/xbps/usr/bin/:$PATH"
           packages=(librewolf-*.xbps)
           [ -e "${packages[0]}" ] || {
             echo "no LibreWolf XBPS package was produced" >&2
             exit 1
           }
-          mkdir -p "$GITHUB_WORKSPACE/release-assets"
-          cp -- "${packages[@]}" "$GITHUB_WORKSPACE/release-assets/"
+
+          repo="$GITHUB_WORKSPACE/release-assets"
+          mkdir -p "$repo"
+          cp -- "${packages[@]}" "$repo/"
+
           (
-            cd "$GITHUB_WORKSPACE/release-assets"
-            sha256sum ./*.xbps > SHA256SUMS
+            cd "$repo"
+            xbps-rindex -r "$PWD"
+
+            # Match the reference repository's XBPS signing flow when signing
+            # credentials are configured. Unsigned mode still publishes a
+            # repository index and checksums, but does not authenticate them.
+            if [ -n "${PRIV_KEY:-}" ] || [ -n "${SIGNEDBY:-}" ]; then
+              : "${PRIV_KEY:?set the PRIV_KEY Actions secret}"
+              : "${SIGNEDBY:?set the SIGNEDBY Actions variable}"
+              export XBPS_PASSPHRASE="${SIGN_PASS:-}"
+              xbps-rindex -s --signedby "$SIGNEDBY" --privkey <(printf '%s' "$PRIV_KEY") "$PWD"
+              xbps-rindex -S --privkey <(printf '%s' "$PRIV_KEY") ./*.xbps
+            else
+              echo "::warning::Publishing an unsigned XBPS repository; configure PRIV_KEY, SIGN_PASS, and SIGNEDBY for signatures."
+            fi
+
+            xbps-rindex -c "$PWD"
+            shopt -s nullglob
+            repo_assets=(./*.xbps ./*.xbps.sig2 ./*-repodata*)
+            [ "${#repo_assets[@]}" -gt 0 ] || {
+              echo "XBPS repository index or package assets are missing" >&2
+              exit 1
+            }
+            sha256sum "${repo_assets[@]}" > SHA256SUMS
           )
 
       - name: upload release bundle
@@ -384,11 +414,13 @@ jobs:
           set -euo pipefail
 
           # Releases contain package archives only. Replace same-named assets on rebuild.
-          compgen -G '*.xbps' >/dev/null || {
-            echo "no .xbps assets found for release $TAG" >&2
+          shopt -s nullglob
+          assets=(./*.xbps ./*.xbps.sig2 ./*-repodata* ./SHA256SUMS)
+          [ "${#assets[@]}" -gt 1 ] || {
+            echo "XBPS repository assets are missing for release $TAG" >&2
             exit 1
           }
-          gh release upload "$TAG" --clobber ./*.xbps SHA256SUMS
+          gh release upload "$TAG" --clobber "${assets[@]}"
 
       - name: mark release latest
         env:
