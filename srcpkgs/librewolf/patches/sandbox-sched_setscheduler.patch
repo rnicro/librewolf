@@ -15,8 +15,10 @@ diff --git a/security/sandbox/linux/SandboxFilter.cpp b/security/sandbox/linux/S
          return If(pid == 0, Allow()).Else(Trap(SchedTrap, nullptr));
        }
 +#ifndef __GLIBC__
-+      case __NR_sched_setscheduler:
-+        return Allow();
++      case __NR_sched_setscheduler: {
++        Arg<pid_t> pid(0);
++        return If(pid == 0, Allow()).Else(Trap(SchedTrap, nullptr));
++      }
 +#endif
  
 @@ -2209,13 +2216,21 @@
@@ -34,9 +36,11 @@ diff --git a/security/sandbox/linux/SandboxFilter.cpp b/security/sandbox/linux/S
        }
  
 +#ifndef __GLIBC__
-+      // sched_setscheduler gets special treatment here (bug 1657849):
-+      case __NR_sched_setscheduler:
-+        return Allow();
++      // Keep sched_setscheduler restricted to the calling thread on musl too.
++      case __NR_sched_setscheduler: {
++        Arg<pid_t> pid(0);
++        return If(pid == 0, Allow()).Else(Trap(SchedTrap, nullptr));
++      }
 +#endif
 +
          // The priority bounds are also used, sometimes (bug 1838675):

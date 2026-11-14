@@ -28,5 +28,3 @@ pref("dom.ipc.processCount", 4);
 pref("dom.ipc.processCount.webIsolated", 1);
 pref("dom.ipc.processPrelaunch.fission.number", 1);
 
-// The default is Google and we don't have API keys for it.
-pref("geo.provider.network.url", "https://location.services.mozilla.com/v1/geolocate?key=%MOZILLA_API_KEY%");

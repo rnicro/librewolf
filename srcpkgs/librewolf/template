@@ -44,10 +44,6 @@ desc_option_wasi="Build wasm sandboxed libraries"
 
 post_extract() {
 	cp "${FILESDIR}/stab.h" toolkit/crashreporter/google-breakpad/src/
-
-	# Mozilla API keys (see https://location.services.mozilla.com/api)
-	# This package targets Void Linux only.
-	echo -n "cd894504-7a2a-4263-abff-ff73ee89ffca" > mozilla-api-key
 }
 
 post_patch() {
@@ -178,7 +174,6 @@ do_build() {
 	ac_add_options --disable-jemalloc
 	ac_add_options --disable-elf-hack
 	$(disable_wasi)
-	ac_add_options --with-mozilla-api-keyfile="${wrksrc}/mozilla-api-key"
 	ac_add_options --enable-system-pixman
 	ac_add_options --with-system-ffi
 	ac_add_options --with-system-jpeg
@@ -211,6 +206,8 @@ do_build() {
 	ac_add_options --with-branding=browser/branding/librewolf
 	ac_add_options --with-l10n-base=$PWD/lw/l10n
 
+	# LibreWolf intentionally does not enforce add-on signature checks.
+	# Users should install extensions only from sources they trust.
 	export MOZ_REQUIRE_SIGNING=
 	export MOZILLA_OFFICIAL=1
 
@@ -261,37 +258,36 @@ do_build() {
 			sed -i '\;ac_add_options --enable-lto=;d' mozconfig
 			echo "ac_add_options --enable-profile-generate=cross" >> mozconfig
 
-			./mach build
-			./mach package
-
-			# Follow Void's Firefox PGO launch model. Xvfb is build-only; the
-			# installed browser remains configured for native Wayland.
-			pgo_runtime_dir="$(mktemp -d "${wrksrc}/pgo-runtime-XXXXXX")"
-			if (
-				trap 'rm -rf -- "$pgo_runtime_dir"' EXIT
-				# These overrides apply only to the throwaway instrumented CI profile run.
-				LLVM_PROFDATA=llvm-profdata \
-				JARLOG_FILE="$PWD/jarlog" \
-				GDK_BACKEND=x11 \
-				LD_LIBRARY_PATH="$PWD/obj/dist/librewolf" \
-				XDG_RUNTIME_DIR="$pgo_runtime_dir" \
-				MOZ_ENABLE_WAYLAND=0 \
-				MOZ_DISABLE_CONTENT_SANDBOX=1 \
-				MOZ_DISABLE_GMP_SANDBOX=1 \
-				MOZ_DISABLE_GPU_SANDBOX=1 \
-				MOZ_DISABLE_RDD_SANDBOX=1 \
-				MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1 \
-				MOZ_DISABLE_UTILITY_SANDBOX=1 \
-				MOZ_DISABLE_VR_SANDBOX=1 \
-				LIBGL_ALWAYS_SOFTWARE=1 \
+			pgo_profile_generated=false
+			if ./mach build && ./mach package; then
+				# Xvfb is only for training; the installed browser remains native Wayland.
+				pgo_runtime_dir="$(mktemp -d "${wrksrc}/pgo-runtime-XXXXXX")"
+				if (
+					trap 'rm -rf -- "$pgo_runtime_dir"' EXIT
+					# These overrides apply only to the throwaway instrumented CI profile run.
+					LLVM_PROFDATA=llvm-profdata \
+					JARLOG_FILE="$PWD/jarlog" \
+					GDK_BACKEND=x11 \
+					LD_LIBRARY_PATH="$PWD/obj/dist/librewolf" \
+					XDG_RUNTIME_DIR="$pgo_runtime_dir" \
+					MOZ_ENABLE_WAYLAND=0 \
+					MOZ_DISABLE_CONTENT_SANDBOX=1 \
+					MOZ_DISABLE_GMP_SANDBOX=1 \
+					MOZ_DISABLE_GPU_SANDBOX=1 \
+					MOZ_DISABLE_RDD_SANDBOX=1 \
+					MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1 \
+					MOZ_DISABLE_UTILITY_SANDBOX=1 \
+					MOZ_DISABLE_VR_SANDBOX=1 \
+					LIBGL_ALWAYS_SOFTWARE=1 \
 					timeout --foreground 30m xvfb-run -a -s "-screen 0 1920x1080x24 -nolisten local" \
-					dbus-run-session -- ./mach python build/pgo/profileserver.py
+						dbus-run-session -- ./mach python build/pgo/profileserver.py
 			); then
-				pgo_profile_generated=true
+					pgo_profile_generated=true
+				fi
+				rm -rf -- "$pgo_runtime_dir"
 			else
-				pgo_profile_generated=false
+				echo "PGO instrumented build/package failed; falling back to a non-PGO LTO build." >&2
 			fi
-			rm -rf -- "$pgo_runtime_dir"
 
 			if [ "$pgo_profile_generated" = true ] &&
 				[ -s merged.profdata ] &&
@@ -310,11 +306,15 @@ do_build() {
 			fi
 		fi
 
+		if [ "$pgo_profile_ready" = true ] && ! pgo_profile_is_valid; then
+			echo "PGO profile validation failed; falling back to a non-PGO LTO build." >&2
+			rm -f -- "$pgo_profile_path" "$pgo_jarlog_path"
+			cp mozconfig.orig mozconfig
+			./mach clobber objdir
+			pgo_profile_ready=false
+		fi
+
 		if [ "$pgo_profile_ready" = true ]; then
-			pgo_profile_is_valid || {
-				echo "PGO profile validation failed; refusing to use an invalid profile." >&2
-				exit 1
-			}
 			./mach clobber objdir
 			cp mozconfig{.orig,}
 			printf '%s\n' \
@@ -339,7 +339,17 @@ do_build() {
 		export LDFLAGS+=" -Wl,--threads=${lto_jobs} -Wl,--lto-O2"
 	fi
 
-	./mach build
+	if [ "${pgo_profile_ready:-false}" = true ]; then
+		if ! ./mach build; then
+			echo "PGO-use build failed; retrying with the non-PGO LTO configuration." >&2
+			rm -f -- "$pgo_profile_path" "$pgo_jarlog_path"
+			cp mozconfig.orig mozconfig
+			./mach clobber objdir
+			./mach build
+		fi
+	else
+		./mach build
+	fi
 }
 
 post_build() {

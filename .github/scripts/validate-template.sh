@@ -198,6 +198,39 @@ if grep -Eq 'GDK_BACKEND=wayland|MOZ_ENABLE_WAYLAND=1|pgo-runtime/wayland' "$tem
   echo "obsolete headless-Wayland PGO setup remains in the package template" >&2
   exit 1
 fi
+package_dir="$(cd "$(dirname "$template")" && pwd)"
+vendor_js="$package_dir/files/vendor.js"
+sandbox_patch="$package_dir/patches/sandbox-sched_setscheduler.patch"
+[ -f "$vendor_js" ] || {
+  echo "package vendor.js is missing" >&2
+  exit 1
+}
+[ -f "$sandbox_patch" ] || {
+  echo "musl scheduler sandbox patch is missing" >&2
+  exit 1
+}
+if grep -Fq 'location.services.mozilla.com' "$vendor_js" || grep -Fq 'MOZILLA_API_KEY' "$template"; then
+  echo "retired Mozilla Location Service configuration must not be shipped" >&2
+  exit 1
+fi
+added_pid_guards=$(grep -F -c '+        return If(pid == 0, Allow()).Else(Trap(SchedTrap, nullptr));' "$sandbox_patch" || true)
+[ "$added_pid_guards" -eq 2 ] || {
+  echo "both musl scheduler rules must retain the current-thread PID restriction" >&2
+  exit 1
+}
+if grep -Fq '+        return Allow();' "$sandbox_patch"; then
+  echo "musl sched_setscheduler must not be unconditionally allowed" >&2
+  exit 1
+fi
+grep -Fq 'if ./mach build && ./mach package; then' "$template" || {
+  echo "instrumented PGO build/package failures must fall back to an LTO-only build" >&2
+  exit 1
+}
+grep -Fq 'PGO-use build failed; retrying with the non-PGO LTO configuration.' "$template" || {
+  echo "PGO-use build failures must have an LTO-only fallback" >&2
+  exit 1
+}
+
 actual_distfile="${1##*/}"
 [ "$actual_distfile" = "$expected_template_distfile" ] || {
   echo "distfile basename mismatch: expected $expected_template_distfile, got $actual_distfile" >&2
