@@ -10,12 +10,12 @@ workflow=${1:?workflow path required}
 awk '
   /^  push:/ { in_push = 1 }
   /^  workflow_dispatch:/ { in_push = 0 }
+  in_push && /^    tags:/ { saw_tags = 1 }
+  in_push && /^      - '\''\*-r\*'\''$/ { saw_release_tag_pattern = 1 }
   in_push && /^    branches:/ { saw_branches = 1 }
-  in_push && /^      - main$/ { saw_main = 1 }
-  in_push && /^      - master$/ { saw_master = 1 }
-  END { exit !(saw_branches && saw_main && !saw_master) }
+  END { exit !(saw_tags && saw_release_tag_pattern && !saw_branches) }
 ' "$workflow" || {
-  echo "automatic builds must trigger on the main branch, not master" >&2
+  echo "automatic builds must be restricted to version/revision tag pushes, not branch pushes" >&2
   exit 1
 }
 
@@ -30,29 +30,43 @@ pgo_gate_count=$(grep -F -o "github.event_name == 'workflow_dispatch' && inputs.
   exit 1
 }
 
-grep -Fq "github.event_name == 'push' && github.ref == 'refs/heads/main'" "$workflow" || {
-  echo "release publishing must be restricted to pushes on main" >&2
+grep -Fq "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')" "$workflow" || {
+  echo "release publishing must be restricted to tag pushes" >&2
   exit 1
 }
 
-grep -Fq "packages=(librewolf-*.xbps)" "$workflow" || {
-  echo "release staging must include LibreWolf packages only" >&2
+grep -Fq 'packages=(librewolf-*.xbps)' "$workflow" || {
+  echo "build staging must include LibreWolf packages only" >&2
   exit 1
 }
-grep -Fq 'xbps-rindex -r "$PWD"' "$workflow" || {
-  echo "release staging must build XBPS repository metadata" >&2
+
+publish_line=$(grep -n '^  publish:' "$workflow" | cut -d: -f1)
+sign_line=$(grep -n 'name: sign XBPS repository' "$workflow" | cut -d: -f1)
+[ -n "$publish_line" ] && [ -n "$sign_line" ] && [ "$sign_line" -gt "$publish_line" ] || {
+  echo "XBPS signing must run in the separate publish job, never in the browser build job" >&2
+  exit 1
+}
+
+build_section=${workflow%%  publish:*}
+if printf '%s\n' "$build_section" | grep -Eq 'secrets\.(PRIV_KEY|SIGN_PASS)'; then
+  echo "private signing credentials must not be exposed to the build job" >&2
+  exit 1
+fi
+
+grep -Fq 'xbps-rindex -a "${packages[@]}"' "$workflow" || {
+  echo "publish job must add the built package to the XBPS index" >&2
+  exit 1
+}
+grep -Fq 'xbps-rindex -s --signedby "$SIGNEDBY" --privkey "$key_file" "$PWD"' "$workflow" || {
+  echo "publish job must sign the XBPS repository index" >&2
+  exit 1
+}
+grep -Fq 'xbps-rindex -S --privkey "$key_file" "${packages[@]}"' "$workflow" || {
+  echo "publish job must sign the XBPS package archives" >&2
   exit 1
 }
 grep -Fq 'xbps-rindex -c "$PWD"' "$workflow" || {
-  echo "release staging must validate XBPS repository metadata" >&2
-  exit 1
-}
-grep -Fq 'xbps-rindex -s --signedby "$SIGNEDBY"' "$workflow" || {
-  echo "release workflow must support signing the XBPS repository index" >&2
-  exit 1
-}
-grep -Fq 'xbps-rindex -S --privkey' "$workflow" || {
-  echo "release workflow must support signing XBPS package archives" >&2
+  echo "publish job must validate/clean XBPS repository metadata" >&2
   exit 1
 }
 grep -Fq 'assets=(./*.xbps ./*.xbps.sig2 ./*-repodata* ./SHA256SUMS)' "$workflow" || {

@@ -255,6 +255,17 @@ esac
 distfile="$expected_distfile"
 release_tag="${version}-r${revision}"
 
+if [ "${GITHUB_EVENT_NAME:-}" = "push" ]; then
+  [ "${GITHUB_REF_TYPE:-}" = "tag" ] || {
+    echo "automatic builds are permitted only for release tag pushes" >&2
+    exit 1
+  }
+  [ "${GITHUB_REF_NAME:-}" = "$release_tag" ] || {
+    echo "pushed tag does not match package version/revision: expected $release_tag, got ${GITHUB_REF_NAME:-unset}" >&2
+    exit 1
+  }
+fi
+
 if [ -n "$GITHUB_OUTPUT" ]; then
   {
     echo "sha256=$checksum"

@@ -11,7 +11,7 @@ This repository publishes a LibreWolf package for **Void Linux x86_64-musl**.
 Add the repository for automatic package updates:
 
 ```sh
-printf '%s\\n' 'repository=https://github.com/rnicro/librewolf/releases/latest/download' \
+printf '%s\n' 'repository=https://github.com/rnicro/librewolf/releases/latest/download' \
   | sudo tee /etc/xbps.d/20-librewolf.conf
 sudo xbps-install -S
 sudo xbps-install librewolf
@@ -23,7 +23,31 @@ To install from one specific release without configuring a persistent repository
 sudo xbps-install -R https://github.com/rnicro/librewolf/releases/download/<tag> librewolf
 ```
 
-The release contains the XBPS package, architecture-specific repository index, and a `SHA256SUMS` manifest. Configure the GitHub Actions secret `PRIV_KEY`, optional passphrase secret `SIGN_PASS`, and Actions variable `SIGNEDBY` to sign the repository index and package archives. Without those signing settings, the workflow publishes an unsigned index; checksums detect accidental corruption but do not authenticate the publisher.
+The release contains the XBPS package, architecture-specific repository index, package signatures, and a `SHA256SUMS` manifest. Remote XBPS repositories require signed metadata and signed package archives. On first use, XBPS may ask you to trust the repository's signing key; verify its fingerprint with the repository maintainer before accepting it.
+
+For repository maintainers, configure the GitHub Actions secret `PRIV_KEY` with a PEM-encoded RSA private key, the optional secret `SIGN_PASS` when that key is encrypted, and the Actions variable `SIGNEDBY` with the signing identity. Generate a key with `ssh-keygen -t rsa -b 4096 -m PEM -f privkey.pem`; store the private key only in GitHub Actions secrets and never commit it to this repository. Signing happens in the separate publishing job, after the build job has finished.
+
+## Browser customization
+
+New profiles receive the packaged `userChrome.css` as their primary chrome stylesheet. The preference bundle also enables user stylesheets with `toolkit.legacyUserProfileCustomizations.stylesheets`, disables legacy RFP, and enables FPP with `+AllTargets,-CSSPrefersColorScheme` so fingerprinting protection remains enabled while sites can follow the selected light/dark content theme.
+
+## Build locally
+
+To build the package yourself:
+
+```sh
+git clone https://github.com/void-linux/void-packages
+cd void-packages
+./xbps-src binary-bootstrap
+cd ..
+git clone https://github.com/rnicro/librewolf
+cp -a librewolf/srcpkgs/librewolf void-packages/srcpkgs/
+cd void-packages
+./xbps-src pkg librewolf
+sudo xbps-install -R hostdir/binpkgs librewolf
+```
+
+The template intentionally supports only `x86_64-musl` and targets Skylake-class CPUs.
 
 ## Target and compatibility
 
@@ -72,9 +96,9 @@ These are workload-specific trade-offs, not benchmark-proven improvements. Measu
 
 ## Build and release workflow
 
-Automatic pushes to `main` build and publish the LTO-only `x86_64-musl` package. PGO is available only through a manual dispatch with the PGO input enabled; manual runs do not publish releases.
+Only tags matching the package template's `<version>-r<revision>` format trigger an automatic build and release. Ordinary branch pushes and merges—including pushes to `main`—do not start builds. A manual GitHub Actions dispatch is available when explicitly requested; it builds an artifact but does not publish a release. The tag must match the version and revision in `srcpkgs/librewolf/template`.
 
-The workflow verifies the upstream source archive with the package SHA-256, validates template and workflow invariants, budgets parallel jobs using available memory, creates the XBPS repository index, and publishes package archives, repository metadata, and a `SHA256SUMS` manifest. XBPS signatures are added when the signing secret and variable described above are configured.
+The workflow verifies the upstream source archive with the package SHA-256, validates template and workflow invariants, and budgets build parallelism using available memory. It stages only the LibreWolf package from the build job. A separate publishing job signs the package and XBPS repository index, then publishes the package, signatures, repository metadata, and a `SHA256SUMS` manifest.
 
 Build reproducibility is improved with `SOURCE_DATE_EPOCH`, but full reproducibility is not guaranteed while the Void package tree and host build tools are fetched from moving upstream references.
 

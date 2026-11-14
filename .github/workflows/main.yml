@@ -2,12 +2,8 @@ name: build
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - srcpkgs/librewolf/**
-      - .github/workflows/main.yml
-      - .github/scripts/**
+    tags:
+      - '*-r*'
   workflow_dispatch:
     inputs:
       pgo:
@@ -293,51 +289,17 @@ jobs:
           path: void-packages/hostdir/repocache-${{ env.XBPS_TARGET_ARCH }}
           key: void-repocache-v3-${{ env.XBPS_TARGET_ARCH }}-${{ hashFiles('void-packages/xbps-src', 'void-packages/srcpkgs/base-chroot/template') }}-${{ steps.void-cache-epoch.outputs.week }}
 
-      - name: stage LibreWolf XBPS repository
+      - name: stage LibreWolf packages
         working-directory: void-packages/hostdir/binpkgs/
-        env:
-          PRIV_KEY: ${{ secrets.PRIV_KEY }}
-          SIGN_PASS: ${{ secrets.SIGN_PASS }}
-          SIGNEDBY: ${{ vars.SIGNEDBY }}
         run: |
           set -euo pipefail
-          export PATH="/opt/xbps/usr/bin/:$PATH"
           packages=(librewolf-*.xbps)
           [ -e "${packages[0]}" ] || {
             echo "no LibreWolf XBPS package was produced" >&2
             exit 1
           }
-
-          repo="$GITHUB_WORKSPACE/release-assets"
-          mkdir -p "$repo"
-          cp -- "${packages[@]}" "$repo/"
-
-          (
-            cd "$repo"
-            xbps-rindex -r "$PWD"
-
-            # Match the reference repository's XBPS signing flow when signing
-            # credentials are configured. Unsigned mode still publishes a
-            # repository index and checksums, but does not authenticate them.
-            if [ -n "${PRIV_KEY:-}" ] || [ -n "${SIGNEDBY:-}" ]; then
-              : "${PRIV_KEY:?set the PRIV_KEY Actions secret}"
-              : "${SIGNEDBY:?set the SIGNEDBY Actions variable}"
-              export XBPS_PASSPHRASE="${SIGN_PASS:-}"
-              xbps-rindex -s --signedby "$SIGNEDBY" --privkey <(printf '%s' "$PRIV_KEY") "$PWD"
-              xbps-rindex -S --privkey <(printf '%s' "$PRIV_KEY") ./*.xbps
-            else
-              echo "::warning::Publishing an unsigned XBPS repository; configure PRIV_KEY, SIGN_PASS, and SIGNEDBY for signatures."
-            fi
-
-            xbps-rindex -c "$PWD"
-            shopt -s nullglob
-            repo_assets=(./*.xbps ./*.xbps.sig2 ./*-repodata*)
-            [ "${#repo_assets[@]}" -gt 0 ] || {
-              echo "XBPS repository index or package assets are missing" >&2
-              exit 1
-            }
-            sha256sum "${repo_assets[@]}" > SHA256SUMS
-          )
+          mkdir -p "$GITHUB_WORKSPACE/release-assets"
+          cp -- "${packages[@]}" "$GITHUB_WORKSPACE/release-assets/"
 
       - name: upload release bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -349,7 +311,7 @@ jobs:
           retention-days: 1
 
   publish:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -365,6 +327,54 @@ jobs:
         with:
           name: librewolf-packages
           path: binpkgs
+
+      - name: prepare xbps-rindex
+        run: |
+          set -euo pipefail
+          mkdir -p /opt/xbps
+          curl --fail --location --retry 5 --retry-all-errors \
+            --connect-timeout 30 --max-time 300 \
+            --output xbps-static-latest.x86_64-musl.tar.xz \
+            https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz
+          tar -xJf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps
+          rm -f xbps-static-latest.x86_64-musl.tar.xz
+          echo "/opt/xbps/usr/bin" >> "$GITHUB_PATH"
+
+      - name: sign XBPS repository
+        working-directory: binpkgs
+        env:
+          PRIV_KEY: ${{ secrets.PRIV_KEY }}
+          SIGN_PASS: ${{ secrets.SIGN_PASS }}
+          SIGNEDBY: ${{ vars.SIGNEDBY }}
+        run: |
+          set -euo pipefail
+          : "${PRIV_KEY:?set the PRIV_KEY Actions secret}"
+          : "${SIGNEDBY:?set the SIGNEDBY Actions variable}"
+
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$PRIV_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          export XBPS_PASSPHRASE="${SIGN_PASS:-}"
+
+          packages=(./librewolf-*.xbps)
+          [ -e "${packages[0]}" ] || {
+            echo "downloaded LibreWolf package is missing" >&2
+            exit 1
+          }
+
+          xbps-rindex -a "${packages[@]}"
+          xbps-rindex -s --signedby "$SIGNEDBY" --privkey "$key_file" "$PWD"
+          xbps-rindex -S --privkey "$key_file" "${packages[@]}"
+          xbps-rindex -c "$PWD"
+
+          shopt -s nullglob
+          repo_assets=(./*.xbps ./*.xbps.sig2 ./*-repodata*)
+          [ "${#repo_assets[@]}" -gt 1 ] || {
+            echo "signed XBPS repository metadata or package signatures are missing" >&2
+            exit 1
+          }
+          sha256sum "${repo_assets[@]}" > SHA256SUMS
 
       - name: publish release tag
         env:
