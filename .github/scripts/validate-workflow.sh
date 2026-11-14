@@ -39,8 +39,24 @@ grep -Fq "packages=(librewolf-*.xbps)" "$workflow" || {
   echo "release staging must include LibreWolf packages only" >&2
   exit 1
 }
-grep -Fq "sha256sum ./*.xbps > SHA256SUMS" "$workflow" || {
-  echo "release staging must generate package SHA256SUMS" >&2
+grep -Fq 'xbps-rindex -s --signedby' "$workflow" || {
+  echo "release staging must initialize a signed XBPS repository" >&2
+  exit 1
+}
+grep -Fq 'xbps-rindex -a "$GITHUB_WORKSPACE/release-assets"/*.xbps' "$workflow" || {
+  echo "release staging must index the package archives" >&2
+  exit 1
+}
+grep -Fq 'xbps-rindex -S --privkey' "$workflow" || {
+  echo "release staging must sign the package archives" >&2
+  exit 1
+}
+grep -Fq 'sha256sum ./*.xbps ./*.sig2 ./*-repodata > SHA256SUMS' "$workflow" || {
+  echo "release staging must checksum packages, signatures, and repository metadata" >&2
+  exit 1
+}
+grep -Fq 'gh release upload "$TAG" --clobber ./*.xbps ./*.sig2 ./*-repodata SHA256SUMS' "$workflow" || {
+  echo "release publishing must include the XBPS index and package signatures" >&2
   exit 1
 }
 if grep -Eq '^[[:space:]]*uses: actions/[^[:space:]@]+@v[0-9]+' "$workflow"; then
