@@ -20,7 +20,6 @@ diff --git a/security/sandbox/linux/SandboxFilter.cpp b/security/sandbox/linux/S
 +        return If(pid == 0, Allow()).Else(Trap(SchedTrap, nullptr));
 +      }
 +#endif
- 
 @@ -2209,13 +2218,23 @@
        case __NR_sched_getparam:
        case __NR_sched_setparam:
