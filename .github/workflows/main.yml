@@ -293,8 +293,12 @@ jobs:
           path: void-packages/hostdir/repocache-${{ env.XBPS_TARGET_ARCH }}
           key: void-repocache-v3-${{ env.XBPS_TARGET_ARCH }}-${{ hashFiles('void-packages/xbps-src', 'void-packages/srcpkgs/base-chroot/template') }}-${{ steps.void-cache-epoch.outputs.week }}
 
-      - name: stage LibreWolf package and checksums
+      - name: stage and sign LibreWolf XBPS repository
         working-directory: void-packages/hostdir/binpkgs/
+        env:
+          XBPS_PRIVATE_KEY: ${{ secrets.XBPS_PRIVATE_KEY }}
+          XBPS_PASSPHRASE: ${{ secrets.XBPS_PASSPHRASE }}
+          XBPS_SIGNEDBY: ${{ vars.XBPS_SIGNEDBY }}
         run: |
           set -euo pipefail
           packages=(librewolf-*.xbps)
@@ -304,9 +308,24 @@ jobs:
           }
           mkdir -p "$GITHUB_WORKSPACE/release-assets"
           cp -- "${packages[@]}" "$GITHUB_WORKSPACE/release-assets/"
+          export PATH="/opt/xbps/usr/bin/:$PATH"
+          export XBPS_ARCH="$XBPS_TARGET_ARCH"
+
+          # A remote XBPS repository must have a signed index and signed packages.
+          : "${XBPS_PRIVATE_KEY:?configure the XBPS_PRIVATE_KEY repository secret}"
+          : "${XBPS_SIGNEDBY:?configure the XBPS_SIGNEDBY repository variable}"
+          key_file="$RUNNER_TEMP/xbps-repo-private.pem"
+          printf '%s\\n' "$XBPS_PRIVATE_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          trap 'rm -f -- "$key_file"' EXIT
+
+          xbps-rindex -s --signedby "$XBPS_SIGNEDBY" --privkey "$key_file" "$GITHUB_WORKSPACE/release-assets"
+          xbps-rindex -a "$GITHUB_WORKSPACE/release-assets" "$GITHUB_WORKSPACE/release-assets"/*.xbps
+          xbps-rindex -S --privkey "$key_file" "$GITHUB_WORKSPACE/release-assets"/*.xbps
+
           (
             cd "$GITHUB_WORKSPACE/release-assets"
-            sha256sum ./*.xbps > SHA256SUMS
+            sha256sum ./*.xbps ./*.sig2 ./*-repodata > SHA256SUMS
           )
 
       - name: upload release bundle
@@ -383,12 +402,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Releases contain package archives only. Replace same-named assets on rebuild.
+          # Publish the package archives, signatures, and architecture-specific repository index.
           compgen -G '*.xbps' >/dev/null || {
             echo "no .xbps assets found for release $TAG" >&2
             exit 1
           }
-          gh release upload "$TAG" --clobber ./*.xbps SHA256SUMS
+          compgen -G '*-repodata' >/dev/null || {
+            echo "no XBPS repository index found for release $TAG" >&2
+            exit 1
+          }
+          compgen -G '*.sig2' >/dev/null || {
+            echo "no signed XBPS package archives found for release $TAG" >&2
+            exit 1
+          }
+          gh release upload "$TAG" --clobber ./*.xbps ./*.sig2 ./*-repodata SHA256SUMS
 
       - name: mark release latest
         env:
