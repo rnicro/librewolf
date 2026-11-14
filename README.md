@@ -13,6 +13,41 @@ Inspired by [index-0/librewolf-void](https://github.com/index-0/librewolf-void).
 
 **Compatibility:** This is a deliberately hardware-specific personal build, not a general-purpose x86_64 binary. The `-march=skylake` compiler target can produce instructions unsupported by older CPUs.
 
+## Install from the custom XBPS repository
+
+This repository publishes a signed XBPS repository for **Void Linux `x86_64-musl`**. Once a release has been published, install it directly through XBPS:
+
+1. Create `/etc/xbps.d/20-librewolf.conf` with this line:
+
+   ```ini
+   repository=https://github.com/rnicro/librewolf/releases/latest/download
+   ```
+
+2. Refresh repositories and install LibreWolf:
+
+   ```sh
+   sudo xbps-install -S
+   sudo xbps-install librewolf
+   ```
+
+3. Future package updates arrive through the normal system update:
+
+   ```sh
+   sudo xbps-install -Su
+   ```
+
+XBPS will ask you to trust the repository signing key the first time. Review the prompt before accepting it. The repository is architecture-specific and currently provides only `x86_64-musl`; it is not for glibc-based Void installations.
+
+### Repository signing setup
+
+The release workflow needs these GitHub repository settings:
+
+- Actions variable `XBPS_SIGNEDBY`: the repository signing identity, such as a maintainer name and email.
+- Actions secret `XBPS_PRIVATE_KEY`: the private RSA signing key in PEM format.
+- Actions secret `XBPS_PASSPHRASE`: the key's passphrase.
+
+The private key and passphrase are used only by the release workflow. Each release includes the XBPS repository index, signed package archives, and SHA-256 checksums.
+
 ## Build features
 
 ### Performance
