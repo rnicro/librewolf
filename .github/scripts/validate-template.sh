@@ -219,6 +219,15 @@ wasm_wrapper_source="$package_dir/files/wasm2c_sandbox_wrapper.c"
   echo "RLBox WASI wrapper fallback source is missing" >&2
   exit 1
 }
+nsinstall_source="$package_dir/files/nsinstall.c"
+[ -s "$nsinstall_source" ] || {
+  echo "Mozilla nsinstall fallback source is missing" >&2
+  exit 1
+}
+grep -Fq 'config/nsinstall.c' "$template" || {
+  echo "template must restore Mozilla's host nsinstall source after extraction" >&2
+  exit 1
+}
 grep -Fq 'third_party/rlbox_wasm2c_sandbox/c_src/wasm2c_sandbox_wrapper.c' "$template" || {
   echo "template must restore the missing RLBox WASI wrapper source after extraction" >&2
   exit 1

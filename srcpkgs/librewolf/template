@@ -1,7 +1,7 @@
 # Template file for 'librewolf'
 pkgname=librewolf
 version=160.0.1
-revision=2
+revision=3
 _rev=1
 wrksrc=${pkgname}-${version}-${_rev}
 build_helper="rust"
@@ -50,6 +50,16 @@ post_extract() {
 	local wasm_wrapper=third_party/rlbox_wasm2c_sandbox/c_src/wasm2c_sandbox_wrapper.c
 	if [ ! -s "$wasm_wrapper" ]; then
 		install -Dm644 "${FILESDIR}/wasm2c_sandbox_wrapper.c" "$wasm_wrapper"
+	fi
+
+	# Some source snapshots omit Mozilla's host-side nsinstall implementation.
+	# The workflow fetches this pinned upstream file and verifies its SHA-256.
+	if [ ! -s config/nsinstall.c ]; then
+		[ -s "${FILESDIR}/nsinstall.c" ] || {
+			echo "config/nsinstall.c is missing and its verified Mozilla fallback was not prepared." >&2
+			exit 1
+		}
+		install -Dm644 "${FILESDIR}/nsinstall.c" config/nsinstall.c
 	fi
 }
 

@@ -68,6 +68,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: prepare Mozilla nsinstall source
+        run: |
+          set -euo pipefail
+          bash -n .github/scripts/prepare-source-fallbacks.sh
+          bash .github/scripts/prepare-source-fallbacks.sh
+
+
       - name: derive reproducible build epoch
         id: build-epoch
         run: |
