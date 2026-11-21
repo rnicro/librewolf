@@ -228,6 +228,10 @@ grep -Fq 'config/nsinstall.c' "$template" || {
   echo "template must restore Mozilla's host nsinstall source after extraction" >&2
   exit 1
 }
+grep -Fq 'compat_nsinstall="${compat_srcdir}/config/nsinstall.c"' "$template" || {
+  echo "template must mirror nsinstall.c into the source root recorded by Mozilla's build metadata" >&2
+  exit 1
+}
 grep -Fq 'third_party/rlbox_wasm2c_sandbox/c_src/wasm2c_sandbox_wrapper.c' "$template" || {
   echo "template must restore the missing RLBox WASI wrapper source after extraction" >&2
   exit 1

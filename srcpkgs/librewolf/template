@@ -61,6 +61,17 @@ post_extract() {
 		}
 		install -Dm644 "${FILESDIR}/nsinstall.c" config/nsinstall.c
 	fi
+	# Mozilla's generated host build metadata refers to librewolf-160.0,
+	# while xbps extracts this package under librewolf-160.0.1. Mirror this
+	# one source file at the alternate recorded root when the version has a
+	# third component; do not create a second source tree.
+	if [[ "${version}" =~ ^([0-9]+\\.[0-9]+)\\.[0-9]+$ ]]; then
+		local compat_srcdir="$(dirname "$PWD")/${pkgname}-${BASH_REMATCH[1]}"
+		local compat_nsinstall="${compat_srcdir}/config/nsinstall.c"
+		if [ "$compat_nsinstall" != "$PWD/config/nsinstall.c" ] && [ ! -s "$compat_nsinstall" ]; then
+			install -Dm644 "$PWD/config/nsinstall.c" "$compat_nsinstall"
+		fi
+	fi
 }
 
 post_patch() {
