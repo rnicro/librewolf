@@ -233,12 +233,16 @@ grep -Fq 'local compat_version="${version%.*}"' "$template" || {
   echo "template must derive Mozilla's major/minor source directory from the package version" >&2
   exit 1
 }
-grep -Fq 'local compat_config_dir="$(dirname "$PWD")/${pkgname}-${compat_version}/config"' "$template" || {
-  echo "template must derive the compatibility config directory recorded by Mozilla's build metadata" >&2
+grep -Fq 'local compat_srcdir="$(dirname "$PWD")/${pkgname}-${compat_version}"' "$template" || {
+  echo "template must derive Mozilla's compatibility source root" >&2
   exit 1
 }
-grep -Fq 'local compat_source="${compat_config_dir}/${host_source}"' "$template" || {
-  echo "template must mirror both host source files into Mozilla's recorded source root" >&2
+grep -Fq 'ln -s "$PWD" "$compat_srcdir"' "$template" || {
+  echo "template must alias the full extracted source tree at Mozilla's recorded source root" >&2
+  exit 1
+}
+grep -Fq 'readlink -f "$compat_srcdir"' "$template" || {
+  echo "template must verify an existing compatibility source symlink before reusing it" >&2
   exit 1
 }
 grep -Fq 'third_party/rlbox_wasm2c_sandbox/c_src/wasm2c_sandbox_wrapper.c' "$template" || {

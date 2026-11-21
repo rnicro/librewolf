@@ -1,7 +1,7 @@
 # Template file for 'librewolf'
 pkgname=librewolf
 version=160.0.1
-revision=5
+revision=6
 _rev=1
 wrksrc=${pkgname}-${version}-${_rev}
 build_helper="rust"
@@ -65,23 +65,53 @@ post_extract() {
 			install -Dm644 "$fallback_source" "$host_source_path"
 		fi
 	done
-	# Mozilla's generated host build metadata refers to the major/minor
-	# source directory, while xbps extracts this package using the full version.
-	# Mirror both host-source files at the source-root path recorded by that metadata.
+	# Mozilla's generated build metadata records the major/minor source
+	# root, while xbps extracts this package using the full version. Alias the
+	# complete source tree so every recorded source path resolves consistently.
 	local compat_version="${version%.*}"
 	if [ "$compat_version" != "$version" ]; then
-		local compat_config_dir="$(dirname "$PWD")/${pkgname}-${compat_version}/config"
-		for host_source in nsinstall.c pathsub.c; do
-			local source_path="$PWD/config/${host_source}"
-			local compat_source="${compat_config_dir}/${host_source}"
-			if [ ! -s "$source_path" ]; then
-				echo "Required Mozilla host source is unavailable: $source_path" >&2
+		local compat_srcdir="$(dirname "$PWD")/${pkgname}-${compat_version}"
+		if [ -L "$compat_srcdir" ]; then
+			local compat_target="$(readlink -f "$compat_srcdir")"
+			if [ "$compat_target" != "$PWD" ]; then
+				echo "Unexpected compatibility source symlink: $compat_srcdir -> $compat_target" >&2
 				exit 1
 			fi
-			if [ "$compat_source" != "$source_path" ] && [ ! -s "$compat_source" ]; then
-				install -Dm644 "$source_path" "$compat_source"
+		elif [ -e "$compat_srcdir" ]; then
+			# Clean only the two files created by the earlier fallback implementation.
+			# Refuse to remove any directory containing unrelated data.
+			if [ -d "$compat_srcdir" ]; then
+				local compat_config_dir="${compat_srcdir}/config"
+				for host_source in nsinstall.c pathsub.c; do
+					local source_path="$PWD/config/${host_source}"
+					local compat_source="${compat_config_dir}/${host_source}"
+					if [ -e "$compat_source" ]; then
+						if cmp -s "$source_path" "$compat_source"; then
+							rm -f -- "$compat_source"
+						else
+							echo "Refusing to replace unexpected compatibility file: $compat_source" >&2
+							exit 1
+						fi
+					fi
+				 done
+				if [ -d "$compat_config_dir" ]; then
+					rmdir "$compat_config_dir" || {
+						echo "Refusing to replace non-empty compatibility directory: $compat_config_dir" >&2
+						exit 1
+					}
+				fi
+				rmdir "$compat_srcdir" || {
+					echo "Refusing to replace non-empty compatibility source root: $compat_srcdir" >&2
+					exit 1
+				}
+			else
+				echo "Compatibility source path exists and is not a directory: $compat_srcdir" >&2
+				exit 1
 			fi
-		done
+			ln -s "$PWD" "$compat_srcdir"
+		else
+			ln -s "$PWD" "$compat_srcdir"
+		fi
 	fi
 }
 

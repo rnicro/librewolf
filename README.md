@@ -59,7 +59,7 @@ Automatic pushes to `main` build and publish the LTO-only package. PGO is availa
 
 The workflow verifies the upstream source archive with the package SHA-256, validates template and workflow invariants, budgets parallel jobs using available memory, stages only LibreWolf packages, and publishes a `SHA256SUMS` manifest.
 
-The build also restores Mozilla's host-side `config/nsinstall.c` and `config/pathsub.c` sources from an immutable upstream commit when the LibreWolf source snapshot omits them. The retrieval script verifies each file's SHA-256 before placing them in the build inputs. For local builds, run `bash .github/scripts/prepare-source-fallbacks.sh` before copying the package into `void-packages`.
+The build restores Mozilla's host-side `config/nsinstall.c` and `config/pathsub.c` sources from an immutable upstream commit when the LibreWolf source snapshot omits them, verifying each file's SHA-256. Mozilla's generated build metadata can refer to the major/minor source-root path even though xbps extracts under the full package version, so the template creates a guarded symlink from the compatibility path to the complete extracted source tree. For local builds, run `bash .github/scripts/prepare-source-fallbacks.sh` before copying the package into `void-packages`.
 
 Build reproducibility is improved with `SOURCE_DATE_EPOCH`, but full reproducibility is not guaranteed while the Void package tree and host build tools are fetched from moving upstream references.
 
