@@ -219,21 +219,26 @@ wasm_wrapper_source="$package_dir/files/wasm2c_sandbox_wrapper.c"
   echo "RLBox WASI wrapper fallback source is missing" >&2
   exit 1
 }
-nsinstall_source="$package_dir/files/nsinstall.c"
-[ -s "$nsinstall_source" ] || {
-  echo "Mozilla nsinstall fallback source is missing" >&2
-  exit 1
-}
-grep -Fq 'config/nsinstall.c' "$template" || {
-  echo "template must restore Mozilla's host nsinstall source after extraction" >&2
+for host_source in nsinstall.c pathsub.c; do
+  [ -s "$package_dir/files/$host_source" ] || {
+    echo "Mozilla $host_source fallback source is missing" >&2
+    exit 1
+  }
+done
+grep -Fq 'for host_source in nsinstall.c pathsub.c; do' "$template" || {
+  echo "template must restore both Mozilla host source files after extraction" >&2
   exit 1
 }
 grep -Fq 'local compat_version="${version%.*}"' "$template" || {
   echo "template must derive Mozilla's major/minor source directory from the package version" >&2
   exit 1
 }
-grep -Fq 'compat_nsinstall="${compat_srcdir}/config/nsinstall.c"' "$template" || {
-  echo "template must mirror nsinstall.c into the source root recorded by Mozilla's build metadata" >&2
+grep -Fq 'local compat_config_dir="$(dirname "$PWD")/${pkgname}-${compat_version}/config"' "$template" || {
+  echo "template must derive the compatibility config directory recorded by Mozilla's build metadata" >&2
+  exit 1
+}
+grep -Fq 'local compat_source="${compat_config_dir}/${host_source}"' "$template" || {
+  echo "template must mirror both host source files into Mozilla's recorded source root" >&2
   exit 1
 }
 grep -Fq 'third_party/rlbox_wasm2c_sandbox/c_src/wasm2c_sandbox_wrapper.c' "$template" || {

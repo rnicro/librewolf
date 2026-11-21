@@ -1,7 +1,7 @@
 # Template file for 'librewolf'
 pkgname=librewolf
 version=160.0.1
-revision=4
+revision=5
 _rev=1
 wrksrc=${pkgname}-${version}-${_rev}
 build_helper="rust"
@@ -52,25 +52,36 @@ post_extract() {
 		install -Dm644 "${FILESDIR}/wasm2c_sandbox_wrapper.c" "$wasm_wrapper"
 	fi
 
-	# Some source snapshots omit Mozilla's host-side nsinstall implementation.
-	# The workflow fetches this pinned upstream file and verifies its SHA-256.
-	if [ ! -s config/nsinstall.c ]; then
-		[ -s "${FILESDIR}/nsinstall.c" ] || {
-			echo "config/nsinstall.c is missing and its verified Mozilla fallback was not prepared." >&2
-			exit 1
-		}
-		install -Dm644 "${FILESDIR}/nsinstall.c" config/nsinstall.c
-	fi
+	# Some LibreWolf snapshots omit Mozilla's host-side C sources.
+	# The workflow fetches both from a pinned upstream commit and verifies their SHA-256.
+	for host_source in nsinstall.c pathsub.c; do
+		local host_source_path="config/${host_source}"
+		if [ ! -s "$host_source_path" ]; then
+			local fallback_source="${FILESDIR}/${host_source}"
+			[ -s "$fallback_source" ] || {
+				echo "config/${host_source} is missing and its verified Mozilla fallback was not prepared." >&2
+				exit 1
+			}
+			install -Dm644 "$fallback_source" "$host_source_path"
+		fi
+	done
 	# Mozilla's generated host build metadata refers to the major/minor
 	# source directory, while xbps extracts this package using the full version.
-	# Mirror only this missing host source at the recorded source-root path.
+	# Mirror both host-source files at the source-root path recorded by that metadata.
 	local compat_version="${version%.*}"
 	if [ "$compat_version" != "$version" ]; then
-		local compat_srcdir="$(dirname "$PWD")/${pkgname}-${compat_version}"
-		local compat_nsinstall="${compat_srcdir}/config/nsinstall.c"
-		if [ "$compat_nsinstall" != "$PWD/config/nsinstall.c" ] && [ ! -s "$compat_nsinstall" ]; then
-			install -Dm644 "$PWD/config/nsinstall.c" "$compat_nsinstall"
-		fi
+		local compat_config_dir="$(dirname "$PWD")/${pkgname}-${compat_version}/config"
+		for host_source in nsinstall.c pathsub.c; do
+			local source_path="$PWD/config/${host_source}"
+			local compat_source="${compat_config_dir}/${host_source}"
+			if [ ! -s "$source_path" ]; then
+				echo "Required Mozilla host source is unavailable: $source_path" >&2
+				exit 1
+			fi
+			if [ "$compat_source" != "$source_path" ] && [ ! -s "$compat_source" ]; then
+				install -Dm644 "$source_path" "$compat_source"
+			fi
+		done
 	fi
 }
 
