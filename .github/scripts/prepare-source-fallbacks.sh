@@ -19,7 +19,7 @@ fetch_verify_install() {
     --connect-timeout 30 --max-time 300 \
     --output "$tmp" "$url"
 
-  printf '%s  %s\\n' "$expected_sha256" "$tmp" | sha256sum --check --status || {
+  printf '%s  %s\n' "$expected_sha256" "$tmp" | sha256sum --check --status || {
     echo "Mozilla config/$filename failed SHA-256 verification." >&2
     exit 1
   }
