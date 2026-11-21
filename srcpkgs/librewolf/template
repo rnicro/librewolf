@@ -1,7 +1,7 @@
 # Template file for 'librewolf'
 pkgname=librewolf
 version=160.0.1
-revision=3
+revision=4
 _rev=1
 wrksrc=${pkgname}-${version}-${_rev}
 build_helper="rust"
@@ -61,12 +61,12 @@ post_extract() {
 		}
 		install -Dm644 "${FILESDIR}/nsinstall.c" config/nsinstall.c
 	fi
-	# Mozilla's generated host build metadata refers to librewolf-160.0,
-	# while xbps extracts this package under librewolf-160.0.1. Mirror this
-	# one source file at the alternate recorded root when the version has a
-	# third component; do not create a second source tree.
-	if [[ "${version}" =~ ^([0-9]+\\.[0-9]+)\\.[0-9]+$ ]]; then
-		local compat_srcdir="$(dirname "$PWD")/${pkgname}-${BASH_REMATCH[1]}"
+	# Mozilla's generated host build metadata refers to the major/minor
+	# source directory, while xbps extracts this package using the full version.
+	# Mirror only this missing host source at the recorded source-root path.
+	local compat_version="${version%.*}"
+	if [ "$compat_version" != "$version" ]; then
+		local compat_srcdir="$(dirname "$PWD")/${pkgname}-${compat_version}"
 		local compat_nsinstall="${compat_srcdir}/config/nsinstall.c"
 		if [ "$compat_nsinstall" != "$PWD/config/nsinstall.c" ] && [ ! -s "$compat_nsinstall" ]; then
 			install -Dm644 "$PWD/config/nsinstall.c" "$compat_nsinstall"

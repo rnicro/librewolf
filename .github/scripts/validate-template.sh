@@ -228,6 +228,10 @@ grep -Fq 'config/nsinstall.c' "$template" || {
   echo "template must restore Mozilla's host nsinstall source after extraction" >&2
   exit 1
 }
+grep -Fq 'local compat_version="${version%.*}"' "$template" || {
+  echo "template must derive Mozilla's major/minor source directory from the package version" >&2
+  exit 1
+}
 grep -Fq 'compat_nsinstall="${compat_srcdir}/config/nsinstall.c"' "$template" || {
   echo "template must mirror nsinstall.c into the source root recorded by Mozilla's build metadata" >&2
   exit 1
