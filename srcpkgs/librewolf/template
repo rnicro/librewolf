@@ -1,7 +1,7 @@
 # Template file for 'librewolf'
 pkgname=librewolf
 version=160.0.1
-revision=1
+revision=2
 _rev=1
 wrksrc=${pkgname}-${version}-${_rev}
 build_helper="rust"
@@ -44,6 +44,13 @@ desc_option_wasi="Build wasm sandboxed libraries"
 
 post_extract() {
 	cp "${FILESDIR}/stab.h" toolkit/crashreporter/google-breakpad/src/
+
+	# RLBox references this entry point when building the WASI sandbox.
+	# Restore it only when the source snapshot does not provide it.
+	local wasm_wrapper=third_party/rlbox_wasm2c_sandbox/c_src/wasm2c_sandbox_wrapper.c
+	if [ ! -s "$wasm_wrapper" ]; then
+		install -Dm644 "${FILESDIR}/wasm2c_sandbox_wrapper.c" "$wasm_wrapper"
+	fi
 }
 
 post_patch() {
@@ -366,6 +373,8 @@ do_install() {
 	DESTDIR="$DESTDIR" ./mach install
 
 	vinstall ${FILESDIR}/vendor.js 644 usr/lib/librewolf/browser/defaults/preferences
+	# Install the primary chrome stylesheet for newly created browser profiles.
+	vinstall ${FILESDIR}/userChrome.css 644 usr/lib/librewolf/browser/defaults/profile/chrome
 	vinstall ${FILESDIR}/librewolf.desktop 644 /usr/share/applications/
 
 	for i in 16x16 32x32 48x48 64x64 128x128; do

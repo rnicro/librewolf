@@ -209,6 +209,24 @@ sandbox_patch="$package_dir/patches/sandbox-sched_setscheduler.patch"
   echo "musl scheduler sandbox patch is missing" >&2
   exit 1
 }
+user_chrome="$package_dir/files/userChrome.css"
+wasm_wrapper_source="$package_dir/files/wasm2c_sandbox_wrapper.c"
+[ -s "$user_chrome" ] || {
+  echo "package userChrome.css is missing" >&2
+  exit 1
+}
+[ -s "$wasm_wrapper_source" ] || {
+  echo "RLBox WASI wrapper fallback source is missing" >&2
+  exit 1
+}
+grep -Fq 'third_party/rlbox_wasm2c_sandbox/c_src/wasm2c_sandbox_wrapper.c' "$template" || {
+  echo "template must restore the missing RLBox WASI wrapper source after extraction" >&2
+  exit 1
+}
+grep -Fq 'vinstall ${FILESDIR}/userChrome.css 644 usr/lib/librewolf/browser/defaults/profile/chrome' "$template" || {
+  echo "template must install userChrome.css into the default profile" >&2
+  exit 1
+}
 for patch_file in "$package_dir"/patches/*.patch; do
   git apply --numstat "$patch_file" >/dev/null || {
     echo "invalid unified diff or hunk counts in $patch_file" >&2

@@ -4,6 +4,10 @@ A custom [LibreWolf](https://librewolf.dev/librewolf/source/releases) package pr
 
 Inspired by [index-0/librewolf-void](https://github.com/index-0/librewolf-void).
 
+## Browser customization
+
+New profiles receive the packaged `userChrome.css`, which provides a compact navigation-bar/tab layout and hides titlebar decorations for the dwl compositor. The preference bundle enables loading user stylesheets and Firefox Fingerprinting Protection (FPP). Legacy Resist Fingerprinting is disabled; FPP remains enabled, with only the `CSSPrefersColorScheme` target excluded so websites can follow the selected light/dark theme.
+
 ## Target and compatibility
 
 - Void Linux `x86_64-musl`.

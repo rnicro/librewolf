@@ -28,3 +28,12 @@ pref("dom.ipc.processCount", 4);
 pref("dom.ipc.processCount.webIsolated", 1);
 pref("dom.ipc.processPrelaunch.fission.number", 1);
 
+// Prefer FPP over legacy Resist Fingerprinting.
+// Keep all FPP targets, but let sites see the selected light/dark content theme.
+pref("privacy.resistFingerprinting", false);
+pref("privacy.fingerprintingProtection", true);
+pref("privacy.fingerprintingProtection.pbmode", true);
+pref("privacy.fingerprintingProtection.overrides", "+AllTargets,-CSSPrefersColorScheme");
+
+// Load the packaged userChrome.css in browser profiles.
+pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
