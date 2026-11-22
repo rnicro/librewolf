@@ -10,7 +10,7 @@ on:
         description: "Rebuild and publish the existing version/revision tag, only when package inputs match"
         type: boolean
         required: false
-        default: false
+        default: true
 
 concurrency:
   group: librewolf-${{ github.ref }}

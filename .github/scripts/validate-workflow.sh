@@ -19,8 +19,8 @@ if printf '%s\n' "$push_section" | grep -Eq '^[[:space:]]+branches(-ignore)?:'; 
   exit 1
 fi
 
-grep -Fq "default: false" "$workflow" || {
-  echo "manual release-publication input must default to false" >&2
+grep -Fq "default: true" "$workflow" || {
+  echo "manual release-publication input must default to true" >&2
   exit 1
 }
 
