@@ -299,6 +299,18 @@ esac
 distfile="$expected_distfile"
 release_tag="${version}-r${revision}"
 
+if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "${GITHUB_REF_NAME:-}" != "$release_tag" ]; then
+  echo "pushed tag does not match package version/revision: expected $release_tag, got ${GITHUB_REF_NAME:-unset}" >&2
+  exit 1
+fi
+
+if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] &&
+  [ "${INPUT_PGO:-false}" = "true" ] &&
+  [ "${INPUT_PUBLISH_RELEASE:-false}" = "true" ]; then
+  echo "PGO and release publication cannot be selected for the same manual run" >&2
+  exit 1
+fi
+
 if [ -n "$GITHUB_OUTPUT" ]; then
   {
     echo "sha256=$checksum"

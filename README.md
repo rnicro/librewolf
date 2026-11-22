@@ -2,7 +2,51 @@
 
 A custom [LibreWolf](https://librewolf.dev/librewolf/source/releases) package profile for **Void Linux** `x86_64-musl`, tuned primarily for Intel Skylake-class CPUs and systems with limited memory or slow storage.
 
-Inspired by [index-0/librewolf-void](https://github.com/index-0/librewolf-void).
+Inspired by [index-0/librewolf-void](https://github.com/index-0/librewolf-void), whose XBPS repository and provenance workflow informed the signed-repository publishing design here.
+
+## Install from the signed XBPS repository
+
+This project currently publishes packages for **Void Linux `x86_64-musl`** only.
+
+For automatic package updates, add the release-backed repository:
+
+```sh
+printf '%s\\n' 'repository=https://github.com/rnicro/librewolf/releases/latest/download' \\
+  | sudo tee /etc/xbps.d/20-librewolf.conf
+sudo xbps-install -S
+sudo xbps-install librewolf
+```
+
+To install from one specific release without configuring a persistent repository:
+
+```sh
+sudo xbps-install -R https://github.com/rnicro/librewolf/releases/download/<release-tag> librewolf
+```
+
+The first install may ask you to trust the repository signing key. Verify the signing identity with the maintainer before accepting it. The release contains the XBPS repository index, signed package archives, a `SHA256SUMS` manifest, and GitHub build provenance for the package.
+
+### Repository signing setup
+
+The release workflow requires these GitHub repository settings:
+
+- Actions secret `PRIV_KEY`: an RSA private key in PEM format.
+- Actions secret `SIGN_PASS`: the key passphrase; optional for an unencrypted key.
+- Actions variable `SIGNEDBY`: the signing identity shown in XBPS metadata (for example, a maintainer name and email).
+
+A compatible key can be generated with:
+
+```sh
+ssh-keygen -t rsa -b 4096 -m PEM -f privkey.pem
+```
+
+Store the private key only in GitHub Actions secrets; never commit it. Signing runs in a separate publishing job, after the build job has completed, so build scripts and third-party build dependencies do not receive the signing credentials.
+
+Verify package checksums and GitHub provenance after downloading a release:
+
+```sh
+sha256sum -c SHA256SUMS
+gh attestation verify -R rnicro/librewolf librewolf-<version>_<revision>.x86_64-musl.xbps
+```
 
 ## Browser customization
 
@@ -55,9 +99,11 @@ These are workload-specific trade-offs, not benchmark-proven improvements. Measu
 
 ## Build and release workflow
 
-Automatic pushes to `main` build and publish the LTO-only package. PGO is available only through a manual dispatch with the PGO input enabled; manual runs do not publish releases.
+Pushes to `main` build and validate the LTO-only package without publishing a release. A tag matching the package template's exact `<version>-r<revision>` value triggers a build, XBPS repository signing, a GitHub provenance attestation, and release publication. Ordinary branch pushes never receive signing credentials.
 
-The workflow verifies the upstream source archive with the package SHA-256, validates template and workflow invariants, budgets parallel jobs using available memory, stages only LibreWolf packages, and publishes a `SHA256SUMS` manifest.
+A manual dispatch builds an artifact by default. The explicit `publish_release` input can rebuild and publish an existing tag only when the package recipe and Mozilla source-fallback inputs are unchanged from that tag; it cannot be combined with PGO. This is useful for migrating an already-built release to the signed repository format. PGO remains opt-in and does not publish.
+
+The workflow verifies the upstream source archive with its SHA-256, validates package and workflow invariants, budgets build parallelism using available memory, and stages only LibreWolf package archives. The separate publisher initializes the architecture-specific XBPS index, signs the repository metadata and each package, verifies the resulting files, generates `SHA256SUMS`, and creates a GitHub attestation for the package.
 
 The build restores Mozilla's host-side `config/nsinstall.c` and `config/pathsub.c` sources from an immutable upstream commit when the LibreWolf source snapshot omits them, verifying each file's SHA-256. Mozilla's generated build metadata can refer to the major/minor source-root path even though xbps extracts under the full package version, so the template creates a guarded symlink from the compatibility path to the complete extracted source tree. For local builds, run `bash .github/scripts/prepare-source-fallbacks.sh` before copying the package into `void-packages`.
 
@@ -78,6 +124,8 @@ When updating LibreWolf:
 ## References
 
 - [LibreWolf source releases](https://librewolf.dev/librewolf/source/releases)
+- [XBPS signing and repository reference implementation](https://github.com/index-0/librewolf-void)
+- [XBPS repository index documentation](https://man.voidlinux.org/xbps-rindex)
 - [Void Linux Firefox package](https://github.com/void-linux/void-packages/tree/master/srcpkgs/firefox)
 - [Mozilla Firefox build documentation](https://firefox-source-docs.mozilla.org/build/buildsystem.html)
 - [Firefox tab unloading documentation](https://gecko-docs.mozilla.org.s3.amazonaws.com/browser/components/tabbrowser/docs/tab-unloading.html)

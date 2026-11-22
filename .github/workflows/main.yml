@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - '*-r*'
     paths:
       - srcpkgs/librewolf/**
       - .github/workflows/main.yml
@@ -12,6 +14,11 @@ on:
     inputs:
       pgo:
         description: "Opt in to experimental PGO; default and release builds use LTO only"
+        type: boolean
+        required: false
+        default: false
+      publish_release:
+        description: "Rebuild and publish the existing version/revision tag, only when package inputs match"
         type: boolean
         required: false
         default: false
@@ -104,10 +111,14 @@ jobs:
 
       - name: validate and prepare package metadata
         id: meta
+        env:
+          INPUT_PGO: ${{ inputs.pgo }}
+          INPUT_PUBLISH_RELEASE: ${{ inputs.publish_release }}
         run: |
           set -euo pipefail
           bash -n .github/scripts/validate-template.sh
           bash -n .github/scripts/validate-workflow.sh
+          bash -n .github/scripts/sign-xbps-repository.sh
           bash .github/scripts/validate-template.sh srcpkgs/librewolf/template void-packages/srcpkgs/rust/template void-packages/srcpkgs/wasi-sdk/template
           bash .github/scripts/validate-workflow.sh .github/workflows/main.yml
 
@@ -300,21 +311,18 @@ jobs:
           path: void-packages/hostdir/repocache-${{ env.XBPS_TARGET_ARCH }}
           key: void-repocache-v3-${{ env.XBPS_TARGET_ARCH }}-${{ hashFiles('void-packages/xbps-src', 'void-packages/srcpkgs/base-chroot/template') }}-${{ steps.void-cache-epoch.outputs.week }}
 
-      - name: stage LibreWolf package and checksums
+      - name: stage LibreWolf package
         working-directory: void-packages/hostdir/binpkgs/
         run: |
           set -euo pipefail
+          shopt -s nullglob
           packages=(librewolf-*.xbps)
-          [ -e "${packages[0]}" ] || {
+          [ "${#packages[@]}" -gt 0 ] || {
             echo "no LibreWolf XBPS package was produced" >&2
             exit 1
           }
           mkdir -p "$GITHUB_WORKSPACE/release-assets"
           cp -- "${packages[@]}" "$GITHUB_WORKSPACE/release-assets/"
-          (
-            cd "$GITHUB_WORKSPACE/release-assets"
-            sha256sum ./*.xbps > SHA256SUMS
-          )
 
       - name: upload release bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -326,16 +334,22 @@ jobs:
           retention-days: 1
 
   publish:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    if: ${{ (github.event_name == 'push' && github.ref_type == 'tag') || (github.event_name == 'workflow_dispatch' && inputs.publish_release && !inputs.pgo) }}
     needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+    env:
+      XBPS_TARGET_ARCH: x86_64-musl
     steps:
       - name: checkout source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          fetch-depth: 0
           persist-credentials: false
+          ref: ${{ github.ref }}
 
       - name: download release bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -343,28 +357,63 @@ jobs:
           name: librewolf-packages
           path: binpkgs
 
-      - name: publish release tag
+      - name: prepare xbps-rindex
+        run: |
+          set -euo pipefail
+          mkdir -p /opt/xbps
+          curl --fail --location --retry 5 --retry-all-errors \
+            --connect-timeout 30 --max-time 300 \
+            --output xbps-static-latest.x86_64-musl.tar.xz \
+            https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz
+          tar -xJf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps
+          rm -f -- xbps-static-latest.x86_64-musl.tar.xz
+          echo "/opt/xbps/usr/bin" >> "$GITHUB_PATH"
+
+      - name: verify release tag
         env:
-          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
           TAG: ${{ needs.build.outputs.release_tag }}
           EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          gh auth setup-git
-
-          # Tags remain immutable. Reuse an existing tag only when all package inputs match;
-          # changes to the recipe, patches or preferences require a package revision bump.
-          if existing_tag_sha="$(git ls-remote --exit-code origin "refs/tags/$TAG" | awk 'NR == 1 {print $1}')"; then
-            git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
-            if git diff --quiet "$TAG" "$EXPECTED_SHA" -- srcpkgs/librewolf; then
-              echo "Reusing immutable tag $TAG; package inputs are unchanged."
-            else
-              echo "Refusing to reuse $TAG because srcpkgs/librewolf changed; increment the package revision." >&2
+          tag_ref="refs/tags/${TAG}"
+          git show-ref --verify --quiet "$tag_ref" || {
+            echo "release tag does not exist locally: $TAG" >&2
+            exit 1
+          }
+          tag_commit="$(git rev-parse "${tag_ref}^{commit}")"
+          if [ "$EVENT_NAME" = "push" ]; then
+            [ "$tag_commit" = "$EXPECTED_SHA" ] || {
+              echo "release tag does not point at the commit that triggered this build" >&2
               exit 1
-            fi
+            }
           else
-            git push origin "$EXPECTED_SHA:refs/tags/$TAG"
+            # Manual publication is permitted only for a tag with identical package
+            # recipe and source-fallback inputs. Workflow/docs-only changes are safe.
+            git diff --quiet "$tag_commit" "$EXPECTED_SHA" -- \
+              srcpkgs/librewolf \
+              .github/scripts/prepare-source-fallbacks.sh || {
+              echo "refusing manual publication: package or source-fallback inputs differ from $TAG" >&2
+              exit 1
+            }
           fi
+          echo "Verified release tag $TAG at $tag_commit."
+
+      - name: sign XBPS repository
+        working-directory: binpkgs
+        env:
+          PRIV_KEY: ${{ secrets.PRIV_KEY }}
+          SIGN_PASS: ${{ secrets.SIGN_PASS }}
+          SIGNEDBY: ${{ vars.SIGNEDBY }}
+          XBPS_TARGET_ARCH: ${{ env.XBPS_TARGET_ARCH }}
+        run: |
+          set -euo pipefail
+          bash ../.github/scripts/sign-xbps-repository.sh
+
+      - name: attest package provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: binpkgs/librewolf-*.xbps
 
       - name: create release
         env:
@@ -375,32 +424,49 @@ jobs:
           PKG_REV: ${{ needs.build.outputs.package_revision }}
         run: |
           set -euo pipefail
-          gh release view "$TAG" >/dev/null 2>&1 && exit 0
-          gh release create "$TAG" \
-            --title "$VERSION (package revision $PKG_REV)" \
-            --notes "https://librewolf.dev/librewolf/source/releases/tag/${VERSION}-${REV}" \
-            --latest=false
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refreshing its signed repository assets."
+          else
+            gh release create "$TAG" \
+              --title "$VERSION (package revision $PKG_REV)" \
+              --notes "https://librewolf.dev/librewolf/source/releases/tag/${VERSION}-${REV}" \
+              --latest=false
+          fi
 
-      - name: upload release assets
+      - name: upload signed XBPS repository
         working-directory: binpkgs
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.release_tag }}
         run: |
           set -euo pipefail
-
-          # Releases contain package archives only. Replace same-named assets on rebuild.
-          compgen -G '*.xbps' >/dev/null || {
-            echo "no .xbps assets found for release $TAG" >&2
+          shopt -s nullglob
+          packages=(./librewolf-*.xbps)
+          signatures=(./librewolf-*.xbps.sig2)
+          repo_indexes=(./*-repodata)
+          [ "${#packages[@]}" -gt 0 ] || {
+            echo "no LibreWolf package archives found" >&2
             exit 1
           }
-          gh release upload "$TAG" --clobber ./*.xbps SHA256SUMS
+          [ "${#signatures[@]}" -eq "${#packages[@]}" ] || {
+            echo "package signature count does not match package count" >&2
+            exit 1
+          }
+          [ "${#repo_indexes[@]}" -eq 1 ] || {
+            echo "expected exactly one x86_64-musl repository index" >&2
+            exit 1
+          }
+          [ -s SHA256SUMS ] || {
+            echo "signed repository checksum manifest is missing" >&2
+            exit 1
+          }
+          sha256sum --check SHA256SUMS
+          assets=("${packages[@]}" "${signatures[@]}" "${repo_indexes[@]}" ./SHA256SUMS)
+          gh release upload "$TAG" --clobber "${assets[@]}"
 
       - name: mark release latest
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           gh release edit "${{ needs.build.outputs.release_tag }}" --latest
