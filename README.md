@@ -18,7 +18,7 @@ sudo xbps-install librewolf
 To install from one specific release without configuring a persistent repository:
 
 ```sh
-sudo xbps-install -R https://github.com/rnicro/librewolf/releases/download/<release-tag> librewolf
+sudo xbps-install -SR https://github.com/rnicro/librewolf/releases/download/<release-tag> librewolf
 ```
 
 The first install may ask you to trust the repository signing key. Verify the signing identity with the maintainer before accepting it. The release contains the XBPS repository index, signed package archives, a `SHA256SUMS` manifest, and GitHub build provenance for the package.
