@@ -399,6 +399,38 @@ jobs:
           fi
           echo "Verified release tag $TAG at $tag_commit."
 
+      - name: protect existing release package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            previous_dir="$(mktemp -d "$RUNNER_TEMP/librewolf-release.XXXXXX")"
+            trap 'rm -rf -- "$previous_dir"' EXIT
+            gh release download "$TAG" --pattern 'librewolf-*.xbps' --dir "$previous_dir"
+
+            shopt -s nullglob
+            current_packages=(binpkgs/librewolf-*.xbps)
+            previous_packages=("$previous_dir"/librewolf-*.xbps)
+            [ "${#current_packages[@]}" -gt 0 ] &&
+              [ "${#current_packages[@]}" -eq "${#previous_packages[@]}" ] || {
+              echo "existing release package set differs from the newly built package set" >&2
+              exit 1
+            }
+            for package in "${current_packages[@]}"; do
+              previous="$previous_dir/${package##*/}"
+              [ -s "$previous" ] && cmp -s "$package" "$previous" || {
+                echo "refusing to replace an existing release with different package bytes: ${package##*/}" >&2
+                echo "bump the package revision and publish a new tag instead." >&2
+                exit 1
+              }
+            done
+            echo "Existing release package payload is byte-identical; signing metadata can be refreshed."
+          else
+            echo "No existing release assets to protect for $TAG."
+          fi
+
       - name: sign XBPS repository
         working-directory: binpkgs
         env:

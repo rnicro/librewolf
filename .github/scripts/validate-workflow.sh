@@ -56,11 +56,7 @@ for required in \
   'bash ../.github/scripts/sign-xbps-repository.sh' \
   'uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6' \
   'subject-path: binpkgs/librewolf-*.xbps' \
-  'gh release upload "$TAG" --clobber' \
-  'gh attestation'; do
-  if [ "$required" = 'gh attestation' ]; then
-    continue
-  fi
+  'gh release upload "$TAG" --clobber'; do
   printf '%s\n' "$publish_section" | grep -Fq "$required" || {
     echo "publish job is missing required release integration: $required" >&2
     exit 1
