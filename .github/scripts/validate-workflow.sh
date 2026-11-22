@@ -8,12 +8,16 @@ workflow=${1:?workflow path required}
 }
 
 push_section="$(sed -n '/^  push:/,/^  workflow_dispatch:/p' "$workflow")"
-for expected in '    branches:' '      - main' '    tags:' "      - '*-r*'"; do
+for expected in '    tags:' "      - '*-r*'"; do
   printf '%s\n' "$push_section" | grep -Fq "$expected" || {
-    echo "push trigger is missing required main-branch or version/revision-tag filter: $expected" >&2
+    echo "automatic push trigger is missing required version/revision-tag filter: $expected" >&2
     exit 1
   }
 done
+if printf '%s\n' "$push_section" | grep -Eq '^[[:space:]]+branches(-ignore)?:'; then
+  echo "branch pushes must not trigger automatic builds" >&2
+  exit 1
+fi
 
 grep -Fq "default: false" "$workflow" || {
   echo "manual release-publication input must default to false" >&2

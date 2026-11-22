@@ -2,14 +2,8 @@ name: build
 
 on:
   push:
-    branches:
-      - main
     tags:
       - '*-r*'
-    paths:
-      - srcpkgs/librewolf/**
-      - .github/workflows/main.yml
-      - .github/scripts/**
   workflow_dispatch:
     inputs:
       publish_release:
@@ -20,7 +14,7 @@ on:
 
 concurrency:
   group: librewolf-${{ github.ref }}
-  # Finish the active expensive build; newer pushes replace the single pending run.
+  # Finish the active expensive build; newer runs for the same ref replace the pending run.
   cancel-in-progress: false
 
 permissions:

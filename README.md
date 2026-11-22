@@ -98,9 +98,9 @@ These are workload-specific trade-offs, not benchmark-proven improvements. Measu
 
 ## Build and release workflow
 
-Pushes to `main` build and validate a PGO-enabled package without publishing a release. A tag matching the package template's exact `<version>-r<revision>` value triggers a PGO-enabled build, XBPS repository signing, a GitHub provenance attestation, and release publication. Ordinary branch pushes never receive signing credentials.
+Commits pushed to branches do not trigger automatic builds. Only a pushed tag matching the package template's exact `<version>-r<revision>` value starts an automatic PGO-enabled build, XBPS repository signing, a GitHub provenance attestation, and release publication.
 
-A manual dispatch builds a PGO-enabled artifact by default. The explicit `publish_release` input can rebuild and publish an existing tag only when the package recipe and Mozilla source-fallback inputs are unchanged from that tag and the package bytes match. This can refresh signing metadata for a release already built with PGO. Older LTO-only releases cannot be promoted in place; increment the package revision and publish a new tag. If PGO profile generation or profile use fails, the package template falls back to the LTO-only configuration.
+A manual dispatch can build a PGO-enabled artifact without publishing. The explicit `publish_release` input can rebuild and publish an existing tag only when the package recipe and Mozilla source-fallback inputs are unchanged from that tag and the package bytes match. This can refresh signing metadata for a release already built with PGO. Older LTO-only releases cannot be promoted in place; increment the package revision and publish a new tag. If PGO profile generation or profile use fails, the package template falls back to the LTO-only configuration.
 
 The workflow verifies the upstream source archive with its SHA-256, validates package and workflow invariants, budgets build parallelism using available memory, and stages only LibreWolf package archives. The separate publisher initializes the architecture-specific XBPS index, signs the repository metadata and each package, verifies the resulting files, generates `SHA256SUMS`, and creates a GitHub attestation for the package.
 
