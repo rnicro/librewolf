@@ -39,6 +39,8 @@ ssh-keygen -t rsa -b 4096 -m PEM -f privkey.pem
 
 Store the private key only in GitHub Actions secrets; never commit it. Signing runs in a separate publishing job, after the build job has completed, so build scripts and third-party build dependencies do not receive the signing credentials.
 
+Existing releases created before signed publishing may contain only the package archive and checksums. To promote the current release, open **Actions → build → Run workflow** on `main`, enable `publish_release`, and leave PGO disabled. The publisher will proceed only if the rebuilt package is byte-identical to the already-published archive; otherwise, increment the package revision and publish a new tag. Configure a GitHub tag ruleset for `*-r*` and disallow tag updates/deletions to protect published version tags.
+
 Verify package checksums and GitHub provenance after downloading a release:
 
 ```sh
