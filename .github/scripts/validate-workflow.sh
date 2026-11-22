@@ -20,9 +20,17 @@ grep -Fq "default: false" "$workflow" || {
   exit 1
 }
 
-pgo_gate_count=$(grep -F -o "github.event_name == 'workflow_dispatch' && inputs.pgo" "$workflow" | wc -l)
-[ "$pgo_gate_count" -eq 4 ] || {
-  echo "PGO cache, build, and profile-save steps must be manual opt-in only (found $pgo_gate_count gates)" >&2
+if grep -Fq 'inputs.pgo' "$workflow"; then
+  echo "PGO must not be a manual opt-in; all builds must enable it" >&2
+  exit 1
+fi
+grep -Fq 'pgo_options=(-o pgo)' "$workflow" || {
+  echo "every workflow build must explicitly enable PGO" >&2
+  exit 1
+}
+pgo_cache_count=$(grep -F -c 'path: void-packages/hostdir/pgo-cache' "$workflow")
+[ "$pgo_cache_count" -eq 2 ] || {
+  echo "PGO profile cache must be restored and saved for all build events" >&2
   exit 1
 }
 
@@ -30,8 +38,8 @@ grep -Fq "github.ref_type == 'tag'" "$workflow" || {
   echo "automatic release publishing must be restricted to tag pushes" >&2
   exit 1
 }
-grep -Fq "inputs.publish_release && !inputs.pgo" "$workflow" || {
-  echo "manual release publication must be explicit and mutually exclusive with PGO" >&2
+grep -Fq "inputs.publish_release)" "$workflow" || {
+  echo "manual release publication must remain explicit" >&2
   exit 1
 }
 

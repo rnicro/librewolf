@@ -39,7 +39,7 @@ ssh-keygen -t rsa -b 4096 -m PEM -f privkey.pem
 
 Store the private key only in GitHub Actions secrets; never commit it. Signing runs in a separate publishing job, after the build job has completed, so build scripts and third-party build dependencies do not receive the signing credentials.
 
-Existing releases created before signed publishing may contain only the package archive and checksums. To promote the current release, open **Actions → build → Run workflow** on `main`, enable `publish_release`, and leave PGO disabled. The publisher will proceed only if the rebuilt package is byte-identical to the already-published archive; otherwise, increment the package revision and publish a new tag. Configure a GitHub tag ruleset for `*-r*` and disallow tag updates/deletions to protect published version tags.
+Releases created before PGO became the default contain LTO-only packages and cannot be promoted in place by the PGO-enabled workflow: the rebuilt package will not be byte-identical. The package revision has therefore been incremented; publish the new version/revision tag to move to the PGO-enabled package. Configure a GitHub tag ruleset for `*-r*` and disallow tag updates/deletions to protect published version tags.
 
 Verify package checksums and GitHub provenance after downloading a release:
 
@@ -57,7 +57,7 @@ New profiles receive the packaged `userChrome.css`, which provides a compact nav
 - Void Linux `x86_64-musl`.
 - Intel Skylake-class CPU; the reference system is an Intel Core i3-6100U.
 - Intended for systems around 4 GB RAM and traditional HDD storage.
-- Native GTK3 Wayland build; Xvfb is used only for optional CI PGO training.
+- Native GTK3 Wayland build; Xvfb is used only for isolated CI PGO training.
 
 **Compatibility:** This is a deliberately hardware-specific personal build, not a general-purpose x86_64 binary. The `-march=skylake` compiler target can produce instructions unsupported by older CPUs.
 
@@ -69,7 +69,7 @@ New profiles receive the packaged `userChrome.css`, which provides a compact nav
 - Rust: `-C target-cpu=skylake`, optimization level 2.
 - Cross-language full LTO with Clang 23 and LLD 23 by default.
 - sccache for compiler-object reuse.
-- PGO is supported, but experimental and opt-in only.
+- PGO is enabled for every build. CI generates a training profile when no valid cached profile exists; profile-generation or profile-use failures fall back to the LTO-only configuration.
 
 ### Memory and storage
 
@@ -82,9 +82,8 @@ New profiles receive the packaged `userChrome.css`, which provides a compact nav
 
 These are workload-specific trade-offs, not benchmark-proven improvements. Measure on target hardware before describing them as faster.
 
-## Experimental and opt-in features
+## Additional build details
 
-- **PGO:** Experimental. Automatic release builds use the LTO-only baseline. A manual GitHub Actions dispatch can opt in to PGO; that run creates an artifact but does not publish a release.
 - **WASI integration:** Enabled by default and tied to the pinned LLVM 23 / WASI SDK toolchain. Revalidate it when Void updates Rust, LLVM, or wasi-sdk.
 - Downstream patches are kept only while needed. The old Parakeet `<cstdint>` patch was removed because Firefox 160 already includes that header.
 - **Tab unloading:** Firefox's built-in memory-pressure feature, not a project-specific experimental feature. It may reload inactive tabs after memory pressure.
@@ -99,9 +98,9 @@ These are workload-specific trade-offs, not benchmark-proven improvements. Measu
 
 ## Build and release workflow
 
-Pushes to `main` build and validate the LTO-only package without publishing a release. A tag matching the package template's exact `<version>-r<revision>` value triggers a build, XBPS repository signing, a GitHub provenance attestation, and release publication. Ordinary branch pushes never receive signing credentials.
+Pushes to `main` build and validate a PGO-enabled package without publishing a release. A tag matching the package template's exact `<version>-r<revision>` value triggers a PGO-enabled build, XBPS repository signing, a GitHub provenance attestation, and release publication. Ordinary branch pushes never receive signing credentials.
 
-A manual dispatch builds an artifact by default. The explicit `publish_release` input can rebuild and publish an existing tag only when the package recipe and Mozilla source-fallback inputs are unchanged from that tag; it cannot be combined with PGO. This is useful for migrating an already-built release to the signed repository format. PGO remains opt-in and does not publish.
+A manual dispatch builds a PGO-enabled artifact by default. The explicit `publish_release` input can rebuild and publish an existing tag only when the package recipe and Mozilla source-fallback inputs are unchanged from that tag and the package bytes match. This can refresh signing metadata for a release already built with PGO. Older LTO-only releases cannot be promoted in place; increment the package revision and publish a new tag. If PGO profile generation or profile use fails, the package template falls back to the LTO-only configuration.
 
 The workflow verifies the upstream source archive with its SHA-256, validates package and workflow invariants, budgets build parallelism using available memory, and stages only LibreWolf package archives. The separate publisher initializes the architecture-specific XBPS index, signs the repository metadata and each package, verifies the resulting files, generates `SHA256SUMS`, and creates a GitHub attestation for the package.
 
@@ -118,7 +117,7 @@ When updating LibreWolf:
 3. Re-check every downstream patch against the new source.
 4. Keep Clang, LLVM, LLD, Rust, Cargo, and wasi-sdk compatible.
 5. Run automated template/workflow validation and a complete package build.
-6. Compare LTO-only and PGO builds before changing the release default.
+6. Validate cached PGO profiles and benchmark performance against an LTO-only build during maintenance.
 7. Test Wayland startup, audio/video, WebRTC, extension behavior, sandboxing, tab unloading, suspend/resume, and session recovery.
 
 ## References

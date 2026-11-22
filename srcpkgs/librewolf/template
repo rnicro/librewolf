@@ -1,7 +1,7 @@
 # Template file for 'librewolf'
 pkgname=librewolf
 version=160.0.1
-revision=6
+revision=7
 _rev=1
 wrksrc=${pkgname}-${version}-${_rev}
 build_helper="rust"
@@ -35,10 +35,10 @@ makedepends="nss-devel libjpeg-turbo-devel gtk+3-devel
 depends="nss>=3.129 nspr>=4.39 desktop-file-utils hicolor-icon-theme pciutils libavcodec6"
 
 build_options="alsa dbus pulseaudio lto pgo clang wasi debug"
-build_options_default="alsa dbus pulseaudio lto clang wasi"
+build_options_default="alsa dbus pulseaudio lto clang wasi pgo"
 
 desc_option_lto="Enable Link Time Optimization"
-desc_option_pgo="Enable experimental Profile-guided Optimization"
+desc_option_pgo="Enable Profile-guided Optimization"
 desc_option_clang="Build with clang"
 desc_option_wasi="Build wasm sandboxed libraries"
 

@@ -181,11 +181,16 @@ if grep -Eq 'ac_add_options --disable-(content-)?sandbox' "$template"; then
 fi
 default_options=$(sed -n 's/^build_options_default="\([^"]*\)"/\1/p' "$template")
 case " $default_options " in
-  *" pgo "*)
-    echo "PGO must remain opt-in and must not appear in build_options_default" >&2
+  *" pgo "*) ;;
+  *)
+    echo "PGO must be enabled in build_options_default" >&2
     exit 1
     ;;
 esac
+if grep -Fq 'desc_option_pgo="Enable experimental' "$template"; then
+  echo "PGO must not be labeled experimental" >&2
+  exit 1
+fi
 grep -Fq 'falling back to a non-PGO LTO build' "$template" || {
   echo "PGO failures must fall back to the standard LTO build" >&2
   exit 1
@@ -301,13 +306,6 @@ release_tag="${version}-r${revision}"
 
 if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "${GITHUB_REF_NAME:-}" != "$release_tag" ]; then
   echo "pushed tag does not match package version/revision: expected $release_tag, got ${GITHUB_REF_NAME:-unset}" >&2
-  exit 1
-fi
-
-if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] &&
-  [ "${INPUT_PGO:-false}" = "true" ] &&
-  [ "${INPUT_PUBLISH_RELEASE:-false}" = "true" ]; then
-  echo "PGO and release publication cannot be selected for the same manual run" >&2
   exit 1
 fi
 
