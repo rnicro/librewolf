@@ -11,7 +11,7 @@ This project currently publishes packages for **Void Linux `x86_64-musl`** only.
 For automatic package updates, add the release-backed repository:
 
 ```sh
-printf '%s\\n' 'repository=https://github.com/rnicro/librewolf/releases/latest/download' | sudo tee /etc/xbps.d/20-librewolf.conf
+printf '%s\n' 'repository=https://github.com/rnicro/librewolf/releases/latest/download' | sudo tee /etc/xbps.d/20-librewolf.conf
 sudo xbps-install -S
 sudo xbps-install librewolf
 ```
