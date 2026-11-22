@@ -16,7 +16,7 @@ for expected in '    branches:' '      - main' '    tags:' "      - '*-r*'"; do
 done
 
 grep -Fq "default: false" "$workflow" || {
-  echo "manual PGO and release-publication inputs must default to false" >&2
+  echo "manual release-publication input must default to false" >&2
   exit 1
 }
 
